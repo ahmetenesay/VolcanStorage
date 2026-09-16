@@ -70,6 +70,26 @@ if(NOT Vulkan_FOUND AND (APPLE OR CMAKE_SYSTEM_NAME STREQUAL "Darwin"))
 endif()
 
 if(NOT Vulkan_FOUND)
+    find_package(PkgConfig QUIET)
+    if(PkgConfig_FOUND)
+        pkg_check_modules(Vulkan_PKG QUIET vulkan)
+        if(Vulkan_PKG_FOUND)
+            set(Vulkan_FOUND TRUE)
+            set(Vulkan_INCLUDE_DIRS ${Vulkan_PKG_INCLUDE_DIRS})
+            set(Vulkan_LIBRARIES ${Vulkan_PKG_LIBRARIES})
+            if(NOT TARGET Vulkan::Vulkan)
+                add_library(Vulkan::Vulkan INTERFACE IMPORTED)
+                set_target_properties(Vulkan::Vulkan PROPERTIES
+                    INTERFACE_INCLUDE_DIRECTORIES "${Vulkan_INCLUDE_DIRS}"
+                    INTERFACE_LINK_LIBRARIES "${Vulkan_LIBRARIES}"
+                )
+            endif()
+            message(STATUS "VolcanStorage: Found Vulkan via pkg-config: ${Vulkan_LIBRARIES}")
+        endif()
+    endif()
+endif()
+
+if(NOT Vulkan_FOUND)
     find_package(Vulkan REQUIRED)
 endif()
 

@@ -32,7 +32,7 @@ jobs:
             arch: x64
             cmake-arch: ""
           # macOS (Apple Silicon & Intel)
-          - os: macos-13
+          - os: macos-latest
             os-name: macOS
             arch: x64
             cmake-arch: -DCMAKE_OSX_ARCHITECTURES=x86_64
@@ -63,12 +63,16 @@ jobs:
         if: runner.os == 'Linux'
         run: |
           sudo apt-get update
-          sudo apt-get install -y libvulkan-dev libvulkan1 glslang-tools libshaderc-dev
+          sudo apt-get install -y libvulkan-dev libvulkan1 pkg-config glslang-tools libshaderc-dev
 
       - name: Install Vulkan & MoltenVK (macOS)
         if: runner.os == 'macOS'
         run: |
-          brew install molten-vk vulkan-headers
+          brew install vulkan-headers
+          curl -sL https://github.com/KhronosGroup/MoltenVK/releases/download/v1.4.2/MoltenVK-all.tar -o /tmp/MoltenVK.tar
+          tar -xf /tmp/MoltenVK.tar -C /tmp
+          sudo cp -R /tmp/MoltenVK/dylib/macOS/* /usr/local/lib/ || sudo cp -R /tmp/MoltenVK/MoltenVK/dylib/macOS/* /usr/local/lib/ || true
+          brew install molten-vk || true
 
       - name: Configure CMake
         run: |
