@@ -10,36 +10,18 @@ permissions:
   contents: write
 
 jobs:
-  build:
-    name: Build ${{ matrix.os-name }}-${{ matrix.arch }}
-    runs-on: ${{ matrix.os }}
+  build-macos:
+    name: Build macOS-${{ matrix.arch }}
+    runs-on: macos-latest
     strategy:
       fail-fast: false
       matrix:
+        arch: [x64, arm64]
         include:
-          # Windows
-          - os: windows-latest
-            os-name: Windows
-            arch: x64
-            cmake-arch: -A x64
-          - os: windows-latest
-            os-name: Windows
-            arch: arm64
-            cmake-arch: -A ARM64
-          # Linux
-          - os: ubuntu-latest
-            os-name: Linux
-            arch: x64
-            cmake-arch: ""
-          # macOS (Apple Silicon & Intel)
-          - os: macos-latest
-            os-name: macOS
-            arch: x64
+          - arch: x64
             cmake-arch: -DCMAKE_OSX_ARCHITECTURES=x86_64 -DVOLCANSTORAGE_BUILD_SAMPLES=OFF
-          - os: macos-latest
-            os-name: macOS
-            arch: arm64
-            cmake-arch: -DCMAKE_OSX_ARCHITECTURES=arm64
+          - arch: arm64
+            cmake-arch: -DCMAKE_OSX_ARCHITECTURES=arm64 -DVOLCANSTORAGE_BUILD_SAMPLES=OFF
 
     steps:
       - name: Checkout Code
@@ -47,39 +29,17 @@ jobs:
         with:
           submodules: recursive
 
-      - name: Install Vulkan SDK (Windows)
-        if: runner.os == 'Windows'
-        shell: pwsh
-        run: |
-          choco install vulkan-sdk -y --no-progress
-          $vulkanPath = (Get-ChildItem -Path "C:\VulkanSDK" -Directory | Sort-Object Name -Descending | Select-Object -First 1).FullName
-          if ($vulkanPath) {
-            Write-Host "Found Vulkan SDK at: $vulkanPath"
-            "VULKAN_SDK=$vulkanPath" | Out-File -FilePath $env:GITHUB_ENV -Encoding utf8 -Append
-            "$vulkanPath\Bin" | Out-File -FilePath $env:GITHUB_PATH -Encoding utf8 -Append
-          }
-
-      - name: Install Vulkan SDK (Ubuntu)
-        if: runner.os == 'Linux'
-        run: |
-          sudo apt-get update
-          sudo apt-get install -y libvulkan-dev libvulkan1 pkg-config glslang-tools libshaderc-dev
-
-      - name: Install Vulkan & MoltenVK (macOS)
-        if: runner.os == 'macOS'
+      - name: Install Vulkan & MoltenVK
         run: |
           brew install vulkan-headers
           curl -sL https://github.com/KhronosGroup/MoltenVK/releases/download/v1.4.2/MoltenVK-all.tar -o /tmp/MoltenVK.tar
           tar -xf /tmp/MoltenVK.tar -C /tmp
           sudo mkdir -p /usr/local/lib
           sudo cp /tmp/MoltenVK/MoltenVK/dynamic/dylib/macOS/libMoltenVK.dylib /usr/local/lib/
-          sudo mkdir -p /opt/homebrew/lib
-          sudo cp /tmp/MoltenVK/MoltenVK/dynamic/dylib/macOS/libMoltenVK.dylib /opt/homebrew/lib/
-          brew install molten-vk || true
 
       - name: Configure CMake
         run: |
-          cmake -B build -S . -DCMAKE_BUILD_TYPE=Release -DVOLCANSTORAGE_BUILD_SAMPLES=ON ${{ matrix.cmake-arch }}
+          cmake -B build -S . -DCMAKE_BUILD_TYPE=Release ${{ matrix.cmake-arch }}
 
       - name: Build Release & Package with CPack
         run: |
@@ -89,13 +49,13 @@ jobs:
       - name: Upload Artifact
         uses: actions/upload-artifact@v4
         with:
-          name: VolcanStorage-${{ matrix.os-name }}-${{ matrix.arch }}
+          name: VolcanStorage-macOS-${{ matrix.arch }}
           path: dist/*.zip
           if-no-files-found: error
 
   publish-release:
-    name: Create GitHub Release
-    needs: build
+    name: Update GitHub Release
+    needs: build-macos
     runs-on: ubuntu-latest
     if: always() && startsWith(github.ref, 'refs/tags/v')
     steps:
@@ -121,7 +81,9 @@ jobs:
             PRERELEASE_FLAG="--prerelease"
           fi
 
+          gh release upload "${{ github.ref_name }}" release-files/*.zip --clobber || \
           gh release create "${{ github.ref_name }}" release-files/*.zip \
             --title "VolcanStorage ${{ github.ref_name }}" \
             --generate-notes \
-            $PRERELEASE_FLAG || echo "Release creation attempted"
+            $PRERELEASE_FLAG || echo "Release upload/creation attempted"
+
