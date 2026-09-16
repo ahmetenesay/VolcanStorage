@@ -75,16 +75,12 @@ message(STATUS "VolcanStorage: Found Vulkan Include: ${Vulkan_INCLUDE_DIRS}")
 message(STATUS "VolcanStorage: Found Vulkan Libraries: ${Vulkan_LIBRARIES}")
 
 # -----------------------------------------------------------------------------
-# Shader Compiler Detection (glslc & dxc from Vulkan SDK)
+# Shader Compiler Detection (glslc from Vulkan SDK)
 # -----------------------------------------------------------------------------
 find_program(GLSLC_EXECUTABLE NAMES glslc HINTS "${VULKAN_SDK_PATH}/Bin" "${VULKAN_SDK_PATH}/bin")
-find_program(DXC_EXECUTABLE NAMES dxc HINTS "${VULKAN_SDK_PATH}/Bin" "${VULKAN_SDK_PATH}/bin")
 
 if(GLSLC_EXECUTABLE)
     message(STATUS "VolcanStorage: Found glslc: ${GLSLC_EXECUTABLE}")
-endif()
-if(DXC_EXECUTABLE)
-    message(STATUS "VolcanStorage: Found dxc: ${DXC_EXECUTABLE}")
 endif()
 
 # -----------------------------------------------------------------------------
