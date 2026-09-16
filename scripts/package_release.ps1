@@ -22,11 +22,15 @@ function Package-Target([string]$p, [string]$a, [string]$buildPath, [string]$bin
 
     if ($p -eq "windows") {
         Copy-Item "$buildPath\src\$Config\VolcanStorage.lib" "$distDir\bin\" -ErrorAction SilentlyContinue
+        Copy-Item "$buildPath\src\$Config\VolcanStorage.dll" "$distDir\bin\" -ErrorAction SilentlyContinue
+        Copy-Item "$buildPath\src\$Config\VolcanStorage_dll.lib" "$distDir\bin\" -ErrorAction SilentlyContinue
         Copy-Item "$buildPath\samples\HelloVolcanStorage\$Config\HelloVolcanStorage.exe" "$distDir\bin\" -ErrorAction SilentlyContinue
         Copy-Item "$buildPath\GDeflate\GDeflate\$Config\GDeflate.lib" "$distDir\bin\" -ErrorAction SilentlyContinue
         Copy-Item "$buildPath\GDeflate\GDeflate\$Config\deflate.lib" "$distDir\bin\" -ErrorAction SilentlyContinue
     } else {
         Copy-Item "$buildPath/src/libVolcanStorage.a" "$distDir\bin\" -ErrorAction SilentlyContinue
+        Copy-Item "$buildPath/src/libVolcanStorage.so" "$distDir\bin\" -ErrorAction SilentlyContinue
+        Copy-Item "$buildPath/src/libVolcanStorage.dylib" "$distDir\bin\" -ErrorAction SilentlyContinue
         Copy-Item "$buildPath/samples/HelloVolcanStorage/HelloVolcanStorage" "$distDir\bin\" -ErrorAction SilentlyContinue
         Copy-Item "$buildPath/GDeflate/GDeflate/libGDeflate.a" "$distDir\bin\" -ErrorAction SilentlyContinue
         Copy-Item "$buildPath/GDeflate/GDeflate/libdeflate.a" "$distDir\bin\" -ErrorAction SilentlyContinue

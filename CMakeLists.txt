@@ -140,6 +140,14 @@ install(TARGETS VolcanStorage
     ARCHIVE DESTINATION bin
 )
 
+if(TARGET VolcanStorage_Shared)
+    install(TARGETS VolcanStorage_Shared
+        RUNTIME DESTINATION bin
+        LIBRARY DESTINATION bin
+        ARCHIVE DESTINATION bin
+    )
+endif()
+
 if(TARGET HelloVolcanStorage)
     install(TARGETS HelloVolcanStorage RUNTIME DESTINATION bin)
 endif()
