@@ -71,6 +71,9 @@ jobs:
           New-Item -ItemType Directory -Path "$dist/docs" -Force
 
           Copy-Item "include/volcanstorage/*" "$dist/include/volcanstorage/" -Recurse
+          if (Test-Path "Docs/VolcanStorage_Developer_Guide.pdf") {
+            Copy-Item "Docs/VolcanStorage_Developer_Guide.pdf" "$dist/docs/"
+          }
           Copy-Item "LICENSE" "$dist/"
           Copy-Item "NOTICES.txt" "$dist/"
           Copy-Item "README.md" "$dist/"

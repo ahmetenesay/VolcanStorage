@@ -37,6 +37,10 @@ function Package-Target([string]$p, [string]$a, [string]$buildPath, [string]$bin
     }
 
     Copy-Item "include\volcanstorage\volcanstorage.h" "$distDir\include\volcanstorage\"
+    if (Test-Path "Docs") {
+        New-Item -ItemType Directory -Force -Path "$distDir\docs" | Out-Null
+        Copy-Item "Docs\VolcanStorage_Developer_Guide.pdf" "$distDir\docs\" -ErrorAction SilentlyContinue
+    }
     Copy-Item "LICENSE" "$distDir\"
     Copy-Item "NOTICES.txt" "$distDir\"
     Copy-Item "README.md" "$distDir\"

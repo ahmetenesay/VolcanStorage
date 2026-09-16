@@ -1,0 +1,730 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="UTF-8">
+<title>VolcanStorage v1.0 Developer Guide</title>
+<style>
+  @page {
+    size: A4;
+    margin: 20mm 16mm 22mm 16mm;
+    @bottom-right {
+      content: counter(page);
+      font-size: 9pt;
+      color: #64748b;
+      font-family: 'Segoe UI', system-ui, sans-serif;
+    }
+    @bottom-left {
+      content: "VolcanStorage v1.0 Developer Guide";
+      font-size: 9pt;
+      color: #64748b;
+      font-family: 'Segoe UI', system-ui, sans-serif;
+    }
+  }
+
+  body {
+    font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, Helvetica, Arial, sans-serif;
+    font-size: 10pt;
+    line-height: 1.55;
+    color: #1e293b;
+    background: #ffffff;
+    margin: 0;
+    padding: 0;
+  }
+
+  /* Cover Page */
+  .cover-page {
+    page-break-after: always;
+    height: 100vh;
+    display: flex;
+    flex-direction: column;
+    justify-content: space-between;
+    padding: 40px 20px 20px 20px;
+    box-sizing: border-box;
+  }
+
+  .cover-header {
+    border-left: 6px solid #e11d48;
+    padding-left: 24px;
+    margin-top: 60px;
+  }
+
+  .cover-badge {
+    display: inline-block;
+    background: #ffe4e6;
+    color: #e11d48;
+    font-weight: 700;
+    font-size: 11pt;
+    padding: 4px 12px;
+    border-radius: 4px;
+    text-transform: uppercase;
+    letter-spacing: 1px;
+    margin-bottom: 16px;
+  }
+
+  .cover-title {
+    font-size: 34pt;
+    font-weight: 900;
+    color: #0f172a;
+    line-height: 1.15;
+    margin: 0 0 12px 0;
+    letter-spacing: -1px;
+  }
+
+  .cover-subtitle {
+    font-size: 14pt;
+    font-weight: 400;
+    color: #475569;
+    max-width: 580px;
+    line-height: 1.4;
+    margin: 0;
+  }
+
+  .cover-meta {
+    background: #f8fafc;
+    border: 1px solid #e2e8f0;
+    border-radius: 8px;
+    padding: 24px;
+    display: grid;
+    grid-template-columns: 1fr 1fr;
+    gap: 16px;
+  }
+
+  .cover-meta-item h4 {
+    margin: 0 0 4px 0;
+    font-size: 9pt;
+    text-transform: uppercase;
+    letter-spacing: 0.5px;
+    color: #64748b;
+  }
+
+  .cover-meta-item p {
+    margin: 0;
+    font-size: 11pt;
+    font-weight: 600;
+    color: #0f172a;
+  }
+
+  .page-break {
+    page-break-after: always;
+  }
+
+  /* Headings */
+  h1 {
+    font-size: 20pt;
+    font-weight: 800;
+    color: #0f172a;
+    border-bottom: 2px solid #e11d48;
+    padding-bottom: 8px;
+    margin-top: 36px;
+    margin-bottom: 16px;
+    page-break-after: avoid;
+  }
+
+  h2 {
+    font-size: 14pt;
+    font-weight: 700;
+    color: #1e293b;
+    margin-top: 24px;
+    margin-bottom: 10px;
+    page-break-after: avoid;
+  }
+
+  h3 {
+    font-size: 11pt;
+    font-weight: 700;
+    color: #334155;
+    margin-top: 18px;
+    margin-bottom: 8px;
+    page-break-after: avoid;
+  }
+
+  p {
+    margin: 0 0 12px 0;
+    text-align: justify;
+  }
+
+  /* Callout Boxes */
+  .callout {
+    padding: 12px 16px;
+    border-radius: 6px;
+    margin: 14px 0;
+    page-break-inside: avoid;
+    font-size: 9.5pt;
+  }
+
+  .callout-info {
+    background: #f0fdf4;
+    border-left: 4px solid #16a34a;
+    color: #14532d;
+  }
+
+  .callout-warning {
+    background: #fffbeb;
+    border-left: 4px solid #f59e0b;
+    color: #78350f;
+  }
+
+  .callout-danger {
+    background: #fef2f2;
+    border-left: 4px solid #ef4444;
+    color: #7f1d1d;
+  }
+
+  .callout-title {
+    font-weight: 700;
+    margin-bottom: 4px;
+    display: flex;
+    align-items: center;
+    gap: 6px;
+  }
+
+  /* Code Blocks */
+  pre {
+    background: #0f172a;
+    color: #f8fafc;
+    padding: 12px 14px;
+    border-radius: 6px;
+    font-family: 'Consolas', 'Courier New', monospace;
+    font-size: 8.5pt;
+    line-height: 1.45;
+    overflow-x: hidden;
+    white-space: pre-wrap;
+    word-break: break-all;
+    page-break-inside: avoid;
+    margin: 12px 0;
+  }
+
+  code {
+    font-family: 'Consolas', 'Courier New', monospace;
+    font-size: 9pt;
+    background: #f1f5f9;
+    color: #e11d48;
+    padding: 2px 5px;
+    border-radius: 4px;
+  }
+
+  pre code {
+    background: transparent;
+    color: inherit;
+    padding: 0;
+  }
+
+  /* Tables */
+  table {
+    width: 100%;
+    border-collapse: collapse;
+    margin: 16px 0;
+    page-break-inside: avoid;
+    font-size: 9pt;
+  }
+
+  th, td {
+    padding: 8px 12px;
+    text-align: left;
+    border: 1px solid #e2e8f0;
+  }
+
+  th {
+    background: #f8fafc;
+    color: #0f172a;
+    font-weight: 700;
+  }
+
+  tr:nth-child(even) td {
+    background: #fcfcfd;
+  }
+
+  /* Architecture Diagram Boxes */
+  .diagram-container {
+    background: #f8fafc;
+    border: 1px solid #cbd5e1;
+    border-radius: 8px;
+    padding: 16px;
+    margin: 16px 0;
+    page-break-inside: avoid;
+  }
+
+  .flow-step {
+    background: #ffffff;
+    border: 1px solid #e2e8f0;
+    border-radius: 6px;
+    padding: 10px 14px;
+    margin-bottom: 8px;
+    display: flex;
+    align-items: center;
+    justify-content: space-between;
+  }
+
+  .flow-step-num {
+    background: #e11d48;
+    color: white;
+    font-weight: 800;
+    border-radius: 50%;
+    width: 22px;
+    height: 22px;
+    display: inline-flex;
+    align-items: center;
+    justify-content: center;
+    font-size: 8.5pt;
+    margin-right: 10px;
+  }
+
+  .flow-step-text {
+    flex-grow: 1;
+    font-size: 9pt;
+  }
+
+  .flow-step-badge {
+    background: #f1f5f9;
+    color: #334155;
+    font-size: 8pt;
+    font-weight: 600;
+    padding: 2px 8px;
+    border-radius: 4px;
+  }
+
+  /* Table of Contents */
+  .toc-item {
+    display: flex;
+    justify-content: space-between;
+    padding: 6px 0;
+    border-bottom: 1px dotted #cbd5e1;
+    font-size: 9.5pt;
+  }
+  .toc-title {
+    font-weight: 600;
+    color: #1e293b;
+  }
+  .toc-num {
+    color: #64748b;
+  }
+</style>
+</head>
+<body>
+
+<!-- COVER PAGE -->
+<div class="cover-page">
+  <div class="cover-header">
+    <div class="cover-badge">Developer &amp; Architecture Reference</div>
+    <div class="cover-title">VolcanStorage</div>
+    <div class="cover-subtitle">High-Performance Asynchronous GPU Asset Streaming and Hardware-Accelerated Decompression for Modern Vulkan Applications</div>
+  </div>
+
+  <div style="margin: 40px 0;">
+    <div style="font-size: 11pt; color: #475569; line-height: 1.6;">
+      <strong>Version:</strong> 1.0.0 Stable<br>
+      <strong>Specification Compatibility:</strong> Vulkan 1.1, 1.2, 1.3, 1.4<br>
+      <strong>Platforms Supported:</strong> Windows (x64, ARM64), Linux (x64, ARM64), macOS (Apple Silicon, x64 via MoltenVK)<br>
+      <strong>License:</strong> MIT License (Open Source)
+    </div>
+  </div>
+
+  <div class="cover-meta">
+    <div class="cover-meta-item">
+      <h4>Author &amp; Maintainer</h4>
+      <p>Ahmet Enes Ay (Chiretallyn)</p>
+    </div>
+    <div class="cover-meta-item">
+      <h4>Target Audience</h4>
+      <p>Engine Programmers, Graphics Engineers</p>
+    </div>
+    <div class="cover-meta-item">
+      <h4>Core Codec</h4>
+      <p>NVIDIA GDeflate (GLSL Compute SPIR-V)</p>
+    </div>
+    <div class="cover-meta-item">
+      <h4>Repository</h4>
+      <p>github.com/ahmetenesay/VolcanStorage</p>
+    </div>
+  </div>
+</div>
+
+<!-- TABLE OF CONTENTS -->
+<div class="page-break">
+  <h1>Table of Contents</h1>
+  <div style="margin-top: 24px;">
+    <div class="toc-item"><span class="toc-title">1. Executive Overview &amp; The NVMe Storage Dilemma</span><span class="toc-num">Section 1</span></div>
+    <div class="toc-item"><span class="toc-title">2. VolcanStorage Architecture vs. Microsoft DirectStorage</span><span class="toc-num">Section 2</span></div>
+    <div class="toc-item"><span class="toc-title">3. Graceful Hardware Downgrade Engine (Tiers 1–3)</span><span class="toc-num">Section 3</span></div>
+    <div class="toc-item"><span class="toc-title">4. Core API Interfaces &amp; Primitive Specifications</span><span class="toc-num">Section 4</span></div>
+    <div class="toc-item"><span class="toc-title">5. GPU Decompression Pipeline (GDeflate GLSL / SPIR-V)</span><span class="toc-num">Section 5</span></div>
+    <div class="toc-item"><span class="toc-title">6. Zero-Copy Streaming: Resizable BAR &amp; UMA Architectures</span><span class="toc-num">Section 6</span></div>
+    <div class="toc-item"><span class="toc-title">7. High-Performance Persistent Staging Pool Mechanics</span><span class="toc-num">Section 7</span></div>
+    <div class="toc-item"><span class="toc-title">8. Complete Step-by-Step Integration Guide</span><span class="toc-num">Section 8</span></div>
+    <div class="toc-item"><span class="toc-title">9. Building, Packaging, and Production Deployment</span><span class="toc-num">Section 9</span></div>
+  </div>
+
+  <h2 style="margin-top: 36px;">1. Executive Overview</h2>
+  <p>
+    In modern high-fidelity interactive applications (Unreal Engine 5 Nanite/Lumen, streaming virtual textures, open-world asset streaming), storage I/O has replaced compute as the primary latency bottleneck. While modern Gen4 and Gen5 NVMe solid-state drives are capable of sustaining raw sequential read throughputs of <strong>7,000 MB/s to 14,000 MB/s</strong>, traditional CPU-centric game loading pipelines rarely exceed 1,500 MB/s.
+  </p>
+  <p>
+    The cause of this throughput degradation is three-fold:
+  </p>
+  <ul>
+    <li><strong>OS Kernel Interrupts &amp; File Context Switches:</strong> Traditional synchronous or standard thread-pool <code>fread</code>/<code>ReadFile</code> calls require roundtrips into the OS scheduler, introducing microsecond-level stalls on thousands of individual asset chunks.</li>
+    <li><strong>CPU Decompression Starvation:</strong> Asset packages compressed with Deflate, Zstandard, or LZ4 saturate CPU cores during load phases, generating severe frame drops and thread contention with physics and audio systems.</li>
+    <li><strong>Redundant Copy Hops:</strong> Data moves from NVMe to OS page cache, into title memory, through a driver upload heap, and finally over PCI-e into VRAM, generating 3x to 4x memory bandwidth amplification.</li>
+  </ul>
+  <p>
+    <strong>VolcanStorage</strong> is a clean-slate, cross-platform C++20 storage runtime designed specifically for the <strong>Vulkan API</strong>. It solves these challenges by binding asynchronous NVMe disk requests directly to Vulkan GPU staging pipelines, decoding GDeflate-compressed assets on GPU compute units, and synchronizing transfers seamlessly via 64-bit Timeline Semaphores.
+  </p>
+</div>
+
+<!-- SECTION 2 & 3 -->
+<div class="page-break">
+  <h1>2. Architectural Comparison</h1>
+  <p>
+    DirectStorage was introduced by Microsoft to address these storage bottlenecks within the DirectX 12 ecosystem. However, Microsoft's implementation has several major limitations for cross-platform engine developers:
+  </p>
+
+  <table>
+    <thead>
+      <tr>
+        <th>Architectural Dimension</th>
+        <th>Microsoft DirectStorage</th>
+        <th>VolcanStorage Runtime</th>
+      </tr>
+    </thead>
+    <tbody>
+      <tr>
+        <td><strong>Graphics API</strong></td>
+        <td>DirectX 12 Only (Closed D3D12 device binding)</td>
+        <td><strong>Vulkan 1.1 to 1.4 Native</strong> (Cross-vendor)</td>
+      </tr>
+      <tr>
+        <td><strong>Operating Systems</strong></td>
+        <td>Windows 10/11 &amp; Xbox only</td>
+        <td><strong>Windows, Linux, macOS (Apple Silicon / MoltenVK)</strong></td>
+      </tr>
+      <tr>
+        <td><strong>Source Availability</strong></td>
+        <td>Closed-source proprietary binary (<code>dstorage.dll</code>)</td>
+        <td><strong>100% Open Source (MIT License)</strong></td>
+      </tr>
+      <tr>
+        <td><strong>Compute Shaders</strong></td>
+        <td>HLSL Shader Model 6.0 DXIL</td>
+        <td><strong>GLSL #version 450 SPIR-V bytecode</strong></td>
+      </tr>
+      <tr>
+        <td><strong>Memory Architecture</strong></td>
+        <td>Windows Upload Heaps (D3D12_HEAP_TYPE_UPLOAD)</td>
+        <td><strong>ReBAR Zero-Copy, UMA Apple/ARM, Host-Visible Ring</strong></td>
+      </tr>
+      <tr>
+        <td><strong>Synchronization</strong></td>
+        <td><code>ID3D12Fence</code></td>
+        <td><strong>VkSemaphore (Timeline &amp; Binary), Win32 Events</strong></td>
+      </tr>
+      <tr>
+        <td><strong>Fallback Path</strong></td>
+        <td>Win32 Threadpool software decompression</td>
+        <td><strong>Automated 3-Tier Hardware Capability Probe</strong></td>
+      </tr>
+    </tbody>
+  </table>
+
+  <h1>3. Graceful Hardware Downgrade Engine</h1>
+  <p>
+    Not all target devices feature high-end discrete GPUs with Vulkan 1.4 and Resizable BAR. VolcanStorage implements a deterministic <strong>Hardware Capability Probe</strong> that discovers hardware features at initialization and selects the highest viable tier:
+  </p>
+
+  <div class="diagram-container">
+    <div class="flow-step">
+      <span class="flow-step-num">3</span>
+      <div class="flow-step-text">
+        <strong>Tier 3: Modern GPU Pipeline (Vulkan 1.3 / 1.4)</strong><br>
+        64-bit Timeline Semaphores, Vulkan Synchronization2, GPU Compute GDeflate, ReBAR Zero-Copy Direct VRAM DMA.
+      </div>
+      <span class="flow-step-badge">12+ GB/s</span>
+    </div>
+    <div class="flow-step">
+      <span class="flow-step-num">2</span>
+      <div class="flow-step-text">
+        <strong>Tier 2: Mainstream Pipeline (Vulkan 1.2 / Steam Deck / APUs)</strong><br>
+        Timeline Semaphores enabled, UMA unified memory path, multi-threaded CPU SIMD GDeflate fallback when GPU compute is occupied.
+      </div>
+      <span class="flow-step-badge">4–8 GB/s</span>
+    </div>
+    <div class="flow-step">
+      <span class="flow-step-num">1</span>
+      <div class="flow-step-text">
+        <strong>Tier 1: Universal Compatibility (Vulkan 1.1 Legacy)</strong><br>
+        Standard binary <code>VkFence</code> / <code>VkSemaphore</code> pairs, POSIX <code>pread</code> / Win32 Overlapped, 64 MB host staging ring-buffer pool.
+      </div>
+      <span class="flow-step-badge">1.5–3 GB/s</span>
+    </div>
+  </div>
+
+  <div class="callout callout-info">
+    <div class="callout-title">Zero Crash Guarantee</div>
+    If an end-user runs your application on an older device lacking <code>VK_KHR_timeline_semaphore</code> or <code>VK_KHR_synchronization2</code>, VolcanStorage automatically scales down internal queue dispatchers without triggering validation layer errors or device loss.
+  </div>
+</div>
+
+<!-- SECTION 4: CORE API -->
+<div class="page-break">
+  <h1>4. Core API Interfaces &amp; Primitive Specifications</h1>
+  <p>
+    VolcanStorage provides an ergonomic C++20 interface that completely decouples storage queue management from your game engine's main render loop:
+  </p>
+
+  <h3>4.1. Factory Initialization (<code>IVolcanStorageFactory</code>)</h3>
+  <pre><code>#include &lt;volcanstorage/volcanstorage.h&gt;
+
+volcan::FactoryDesc desc{};
+desc.Device = myVulkanDevice;
+desc.PhysicalDevice = myPhysicalDevice;
+desc.DefaultStagingBufferSize = 64 * 1024 * 1024; // 64 MB staging ring pool
+
+volcan::IVolcanStorageFactory* factory = nullptr;
+VkResult res = volcan::CreateVolcanStorageFactory(&amp;desc, &amp;factory);
+if (res == VK_SUCCESS) {
+    const volcan::VolcanDeviceCapabilities&amp; caps = factory-&gt;GetCapabilities();
+    printf("Tier: %d, ReBAR: %s, Timelines: %s\n", 
+        caps.Tier, 
+        caps.SupportsReBAR ? "YES" : "NO",
+        caps.SupportsTimelineSemaphores ? "YES" : "NO");
+}</code></pre>
+
+  <h3>4.2. Asynchronous File Access (<code>IVolcanStorageFile</code>)</h3>
+  <p>
+    Files are opened with native operating system non-blocking flags (<code>FILE_FLAG_OVERLAPPED | FILE_FLAG_NO_BUFFERING</code> on Windows, <code>O_DIRECT</code> / <code>pread</code> on Linux):
+  </p>
+  <pre><code>volcan::IVolcanStorageFile* assetFile = nullptr;
+res = factory-&gt;OpenFile(L"Content/Pak/Textures_4K.volcan", &amp;assetFile);
+uint64_t fileSize = assetFile-&gt;GetFileSize();</code></pre>
+
+  <h3>4.3. Creating Storage Queues (<code>IVolcanStorageQueue</code>)</h3>
+  <p>
+    Queues are categorized by priority and capacity. A typical architecture maintains two queues: one high-priority queue for immediate camera frustum streaming, and one normal-priority queue for background asset pre-fetching.
+  </p>
+  <pre><code>volcan::QueueDesc qDesc{};
+qDesc.Capacity = 2048;                    // Up to 2048 requests in flight
+qDesc.QueuePriority = volcan::Priority::Realtime; // High execution priority
+qDesc.Name = "StreamingTextureQueue";
+
+volcan::IVolcanStorageQueue* streamQueue = nullptr;
+factory-&gt;CreateQueue(&amp;qDesc, &amp;streamQueue);</code></pre>
+
+  <h3>4.4. The Request Descriptor (<code>volcan::Request</code>)</h3>
+  <p>
+    Each individual load request specifies its source file, offset, compressed/uncompressed sizes, and destination Vulkan resource:
+  </p>
+  <table>
+    <thead>
+      <tr>
+        <th>Field</th>
+        <th>Type</th>
+        <th>Description</th>
+      </tr>
+    </thead>
+    <tbody>
+      <tr>
+        <td><code>File</code></td>
+        <td><code>IVolcanStorageFile*</code></td>
+        <td>Source file handle opened via the factory.</td>
+      </tr>
+      <tr>
+        <td><code>SourceOffset</code></td>
+        <td><code>uint64_t</code></td>
+        <td>Byte offset within the archive file.</td>
+      </tr>
+      <tr>
+        <td><code>SourceSize</code></td>
+        <td><code>uint32_t</code></td>
+        <td>Compressed byte length on disk.</td>
+      </tr>
+      <tr>
+        <td><code>UncompressedSize</code></td>
+        <td><code>uint32_t</code></td>
+        <td>Expected decompressed payload size.</td>
+      </tr>
+      <tr>
+        <td><code>DestType</code></td>
+        <td><code>DestinationType</code></td>
+        <td><code>Buffer</code>, <code>Image</code>, or <code>Memory</code>.</td>
+      </tr>
+      <tr>
+        <td><code>Destination.Buffer</code></td>
+        <td><code>VkBuffer, Offset</code></td>
+        <td>Target Vulkan buffer and destination byte offset.</td>
+      </tr>
+      <tr>
+        <td><code>Destination.Image</code></td>
+        <td><code>VkImage, Extent, Mip</code></td>
+        <td>Target texture, dimensions, and mip level.</td>
+      </tr>
+    </tbody>
+  </table>
+</div>
+
+<!-- SECTION 5 & 6 -->
+<div class="page-break">
+  <h1>5. GPU Decompression Pipeline (GDeflate SPIR-V)</h1>
+  <p>
+    VolcanStorage standardizes on <strong>NVIDIA GDeflate</strong>, an open, royalty-free byte-stream format specifically engineered for massively parallel SIMD/SIMT architectures:
+  </p>
+  <ul>
+    <li><strong>Tile-Based Partitioning:</strong> Uncompressed assets are broken into discrete 64 KB tiles. Each tile is compressed independently into the bitstream.</li>
+    <li><strong>Branchless Prefix-Code Decoding:</strong> Compute shader workgroups (typically 128 or 256 threads) process independent bitstreams simultaneously, eliminating divergence stalls.</li>
+    <li><strong>GLSL Compute Implementation:</strong> The primary shader is compiled from <code>shaders/GDeflate.comp</code> using <code>glslc --target-env=vulkan1.1</code> into standard SPIR-V, ensuring execution across AMD, NVIDIA, Intel, and Apple GPUs.</li>
+  </ul>
+
+  <div class="callout callout-warning">
+    <div class="callout-title">Automatic Image Layout Transitions</div>
+    When <code>DestinationType::Image</code> is targeted, VolcanStorage's internal transfer queue automatically executes barrier transitions: 
+    <code>VK_IMAGE_LAYOUT_UNDEFINED</code> &rarr; <code>VK_IMAGE_LAYOUT_TRANSFER_DST_OPTIMAL</code> &rarr; <code>VK_IMAGE_LAYOUT_SHADER_READ_ONLY_OPTIMAL</code>. Your engine can sample the texture immediately after the timeline semaphore signals!
+  </div>
+
+  <h1>6. Zero-Copy Streaming: Resizable BAR &amp; UMA</h1>
+  <p>
+    Legacy graphics architectures limited the CPU-to-GPU PCI Express transfer aperture to 256 MB. With modern <strong>Resizable BAR (ReBAR)</strong> and AMD <strong>Smart Access Memory (SAM)</strong>, the entire VRAM pool (e.g. 16 GB to 24 GB) is directly addressable in host memory space.
+  </p>
+  <p>
+    VolcanStorage dynamically checks for:
+  </p>
+  <pre><code>VK_MEMORY_PROPERTY_DEVICE_LOCAL_BIT | VK_MEMORY_PROPERTY_HOST_VISIBLE_BIT</code></pre>
+  <p>
+    When this combination is detected, VolcanStorage maps the destination buffer directly to the OS disk I/O subsystem. Data read from the NVMe controller is DMA-transferred <strong>directly into VRAM</strong> across PCI Express Gen4/5, completely bypassing host DRAM staging copies.
+  </p>
+
+  <div class="diagram-container">
+    <div style="font-weight: 700; margin-bottom: 8px; color: #0f172a;">Memory Flow Paths:</div>
+    <div class="flow-step">
+      <span class="flow-step-num">A</span>
+      <div class="flow-step-text">
+        <strong>Zero-Copy Path (ReBAR &amp; Apple Silicon / AMD APU UMA):</strong><br>
+        NVMe &rarr; Direct PCI-e DMA &rarr; Device Local VRAM (Zero staging overhead)
+      </div>
+      <span class="flow-step-badge">Direct DMA</span>
+    </div>
+    <div class="flow-step">
+      <span class="flow-step-num">B</span>
+      <div class="flow-step-text">
+        <strong>Standard Discrete GPU Path:</strong><br>
+        NVMe &rarr; 64 MB Persistent Ring Buffer &rarr; GPU Copy Engine &rarr; VRAM
+      </div>
+      <span class="flow-step-badge">Ring Buffered</span>
+    </div>
+  </div>
+</div>
+
+<!-- SECTION 7 & 8 -->
+<div class="page-break">
+  <h1>7. Persistent Staging Pool Mechanics</h1>
+  <p>
+    A critical mistake in naive Vulkan storage implementations is allocating temporary <code>VkDeviceMemory</code> for every streaming batch. Frequent allocations trigger OS page table updates, GPU memory fragmentation, and severe frame hitching.
+  </p>
+  <p>
+    VolcanStorage allocates a single <strong>persistent 64 MB ring buffer</strong> (configurable via <code>DefaultStagingBufferSize</code>) at factory initialization:
+  </p>
+  <ul>
+    <li>Requests acquire sub-allocated offsets into the ring buffer via atomic increments.</li>
+    <li>When transfers complete and are retired by GPU semaphores, ring buffer segments are reclaimed in constant time $O(1)$.</li>
+    <li>Zero runtime allocations occur during intense open-world streaming!</li>
+  </ul>
+
+  <h1>8. Complete Step-by-Step Integration Guide</h1>
+  <p>
+    The following example illustrates a complete end-to-end streaming cycle with monotonic Timeline Semaphore synchronization:
+  </p>
+  <pre><code>// 1. Create a 64-bit Timeline Semaphore for storage sync
+VkSemaphoreTypeCreateInfo timelineCreateInfo{
+    .sType = VK_STRUCTURE_TYPE_SEMAPHORE_TYPE_CREATE_INFO,
+    .semaphoreType = VK_SEMAPHORE_TYPE_TIMELINE,
+    .initialValue = 0
+};
+VkSemaphoreCreateInfo semInfo{
+    .sType = VK_STRUCTURE_TYPE_SEMAPHORE_CREATE_INFO,
+    .pNext = &amp;timelineCreateInfo
+};
+VkSemaphore storageTimeline;
+vkCreateSemaphore(device, &amp;semInfo, nullptr, &amp;storageTimeline);
+
+// 2. Enqueue asynchronous load requests
+volcan::Request req{};
+req.File = worldArchive;
+req.SourceOffset = 1048576; // Byte offset in pak
+req.SourceSize = 262144;    // 256 KB compressed
+req.UncompressedSize = 1048576; // 1 MB uncompressed
+req.DestType = volcan::DestinationType::Buffer;
+req.Destination.Buffer.TargetBuffer = terrainVBO;
+req.Destination.Buffer.Offset = 0;
+streamQueue-&gt;EnqueueRequest(&amp;req);
+
+// 3. Enqueue a fence signal at monotonic value 42
+uint64_t expectedSyncValue = 42;
+streamQueue-&gt;EnqueueSignalTimeline(storageTimeline, expectedSyncValue);
+
+// 4. Submit the batch to disk and GPU transfer queues
+streamQueue-&gt;Submit();
+
+// 5. In your render loop: Wait or instruct graphics command buffer to wait on GPU
+VkTimelineSemaphoreSubmitInfo timelineSubmit{
+    .sType = VK_STRUCTURE_TYPE_TIMELINE_SEMAPHORE_SUBMIT_INFO,
+    .waitSemaphoreValueCount = 1,
+    .pWaitSemaphoreValues = &amp;expectedSyncValue
+};
+// Submit your draw call - it executes the instant loading finishes!</code></pre>
+</div>
+
+<!-- SECTION 9 -->
+<div class="page-break">
+  <h1>9. Building, Packaging &amp; Production Deployment</h1>
+  <p>
+    VolcanStorage integrates seamlessly into standard CMake build environments. It requires a C++20 compliant compiler (MSVC v143+, GCC 12+, Clang 15+) and the Vulkan SDK (version 1.1 or newer).
+  </p>
+
+  <h3>9.1. Integration via CMake</h3>
+  <pre><code># In your engine's CMakeLists.txt:
+add_subdirectory(third_party/VolcanStorage)
+target_link_libraries(MyGameEngine PRIVATE VolcanStorage)</code></pre>
+
+  <h3>9.2. Automated Packaging Tool (<code>scripts/package_release.ps1</code>)</h3>
+  <p>
+    The repository includes an automated packaging pipeline that packages release zip archives containing headers, binary libraries, SPIR-V shaders, documentation, and notices:
+  </p>
+  <pre><code># Package all locally built platforms into dist/
+pwsh -ExecutionPolicy Bypass -File scripts/package_release.ps1 -All
+
+# Or build individual platforms:
+pwsh -ExecutionPolicy Bypass -File scripts/package_release.ps1 -Platform Windows-x64
+pwsh -ExecutionPolicy Bypass -File scripts/package_release.ps1 -Platform Linux-arm64</code></pre>
+
+  <h3>9.3. Distribution Package Architecture</h3>
+  <table>
+    <thead>
+      <tr>
+        <th>Directory / Artifact</th>
+        <th>Description</th>
+      </tr>
+    </thead>
+    <tbody>
+      <tr>
+        <td><code>bin/</code></td>
+        <td>Compiled runtime binaries (<code>volcanstorage.dll</code>, <code>.lib</code>, <code>.so</code>, <code>.dylib</code>) and <code>shaders/GDeflate.spv</code></td>
+      </tr>
+      <tr>
+        <td><code>include/volcanstorage/</code></td>
+        <td>Public C++20 headers (<code>volcanstorage.h</code>)</td>
+      </tr>
+      <tr>
+        <td><code>docs/</code></td>
+        <td>Developer guide and architectural specifications</td>
+      </tr>
+      <tr>
+        <td><code>LICENSE</code> &amp; <code>NOTICES.txt</code></td>
+        <td>MIT open source license &amp; third-party attributions (Microsoft, NVIDIA)</td>
+      </tr>
+    </tbody>
+  </table>
+
+  <div style="margin-top: 40px; border-top: 1px solid #cbd5e1; padding-top: 16px; font-size: 8.5pt; color: #64748b; text-align: center;">
+    VolcanStorage Project &bull; Open-Source DirectStorage Runtime for Vulkan &bull; Published under the MIT License
+  </div>
+</div>
+
+</body>
+</html>
