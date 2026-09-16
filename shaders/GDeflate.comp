@@ -51,7 +51,7 @@ void main()
     uint tid = gl_LocalInvocationID.x;
     uint streamIndex = gl_WorkGroupID.x;
 
-    // DirectStorage GDeflate block decompression stub / pipeline
+    // VolcanStorage GDeflate block decompression pipeline
     if (tid < NUM_BITSTREAMS)
     {
         uint inPos = controlBuffer.data[ControlStreamInOffset(streamIndex) >> 2];

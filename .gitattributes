@@ -4,10 +4,15 @@
 # Explicitly declare code/VS files as CRLF
 *.cpp eol=crlf
 *.h eol=crlf
-*.hlsl eol=crlf
+*.comp eol=lf
+*.glsl eol=lf
 *.vcxproj eol=crlf
 *.filters eol=crlf
 *.sln eol=crlf
 
 # Explicitly declare resource files as binary
 *.bin binary
+*.spv binary
+*.volcan binary
+*.ktx2 binary
+

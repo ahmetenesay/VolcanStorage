@@ -92,7 +92,7 @@ struct QueueDesc
 enum class FeatureTier : uint32_t
 {
     Tier1_Legacy = 1,   // Vulkan 1.1: Binary Fences, staging copy, CPU decompression fallback
-    Tier2_Standard = 2, // Vulkan 1.2: Timeline Semaphores (DirectStorage Fence equivalent), staging pool
+    Tier2_Standard = 2, // Vulkan 1.2: 64-bit Timeline Semaphores (Monotonic GPU sync), staging pool
     Tier3_Modern = 3    // Vulkan 1.3 / 1.4: Synchronization2 (vkCmdPipelineBarrier2), UMA Zero-Copy, GPU Compute
 };
 
