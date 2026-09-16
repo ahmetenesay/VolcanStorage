@@ -1,3 +1,6 @@
+==============================================================================
+VolcanStorage Core License
+==============================================================================
 MIT License
 
 Copyright (c) 2026 Ahmet Enes Ay (Chiretallyn) and the VolcanStorage Contributors.
@@ -21,36 +24,66 @@ OUT OF OR IN CONNECTION WITH THE SOFTWARE OR THE USE OR OTHER DEALINGS IN THE
 SOFTWARE.
 
 ==============================================================================
-TRADEMARKS AND NON-AFFILIATION DISCLAIMER:
+Original Microsoft DirectStorage Sample Code License
 ==============================================================================
-VolcanStorage is an independent open-source project and is NOT affiliated with,
-endorsed by, sponsored by, or in any way officially associated with Microsoft
-Corporation, NVIDIA Corporation, or the Khronos Group Inc.
+MIT License
 
-* "DirectStorage", "DirectX", and "Windows" are registered trademarks of
-  Microsoft Corporation.
+Copyright (c) Microsoft Corporation.
+
+Permission is hereby granted, free of charge, to any person obtaining a copy
+of this software and associated documentation files (the "Software"), to deal
+in the Software without restriction, including without limitation the rights
+to use, copy, modify, merge, publish, distribute, sublicense, and/or sell
+copies of the Software, and to permit persons to whom the Software is
+furnished to do so, subject to the following conditions:
+
+The above copyright notice and this permission notice shall be included in all
+copies or substantial portions of the Software.
+
+THE SOFTWARE IS PROVIDED "AS IS", WITHOUT WARRANTY OF ANY KIND, EXPRESS OR
+IMPLIED, INCLUDING BUT NOT LIMITED TO THE WARRANTIES OF MERCHANTABILITY,
+FITNESS FOR A PARTICULAR PURPOSE AND NONINFRINGEMENT. IN NO EVENT SHALL THE
+AUTHORS OR COPYRIGHT HOLDERS BE LIABLE FOR ANY CLAIM, DAMAGES OR OTHER
+LIABILITY, WHETHER IN AN ACTION OF CONTRACT, TORT OR OTHERWISE, ARISING FROM,
+OUT OF OR IN CONNECTION WITH THE SOFTWARE OR THE USE OR OTHER DEALINGS IN THE
+SOFTWARE.
+
+==============================================================================
+NVIDIA GDeflate Compression & Decompression Codec
+==============================================================================
+SPDX-FileCopyrightText: Copyright (c) 2020, 2021, 2022 NVIDIA CORPORATION & AFFILIATES.
+SPDX-FileCopyrightText: Copyright (c) Microsoft Corporation.
+Licensed under the Apache License, Version 2.0 (the "License");
+you may not use this file except in compliance with the License.
+You may obtain a copy of the License at:
+
+    http://www.apache.org/licenses/LICENSE-2.0
+
+Unless required by applicable law or agreed to in writing, software
+distributed under the License is distributed on an "AS IS" BASIS,
+WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied.
+See the License for the specific language governing permissions and
+limitations under the License.
+(Full Apache-2.0 license text is provided in NOTICES.txt)
+
+==============================================================================
+libdeflate
+==============================================================================
+Copyright 2016-2022 Eric Biggers
+Copyright 2017 Jun He <jun.he@linaro.org>
+Licensed under the MIT License (see NOTICES.txt).
+
+==============================================================================
+TRADEMARKS AND NON-AFFILIATION DISCLAIMER
+==============================================================================
+VolcanStorage is an independent, clean-room open-source project and is NOT
+affiliated with, endorsed by, sponsored by, or in any way officially associated
+with Microsoft Corporation, NVIDIA Corporation, or the Khronos Group Inc.
+
+* "DirectStorage", "DirectX", and "Windows" are registered trademarks or
+  trademarks of Microsoft Corporation.
 * "Vulkan" and the Vulkan logo are registered trademarks of the Khronos Group Inc.
-* "NVIDIA" and "GDeflate" are trademarks or registered trademarks of NVIDIA Corporation.
-* All other trademarks, trade names, and logos belong to their respective owners.
-
-==============================================================================
-THIRD-PARTY OPEN-SOURCE NOTICES AND ATTRIBUTIONS:
-==============================================================================
-VolcanStorage incorporates or references code from the following third-party
-open-source projects under their respective licenses:
-
-1. Microsoft DirectStorage Sample Code:
-   Copyright (c) Microsoft Corporation.
-   Licensed under the MIT License.
-
-2. NVIDIA GDeflate Codec & Compute Implementations:
-   SPDX-FileCopyrightText: Copyright (c) 2020, 2021, 2022 NVIDIA CORPORATION & AFFILIATES.
-   SPDX-FileCopyrightText: Copyright (c) Microsoft Corporation.
-   Licensed under the Apache License, Version 2.0 (see NOTICES.txt).
-
-3. libdeflate:
-   Copyright 2016-2022 Eric Biggers.
-   Copyright 2017 Jun He <jun.he@linaro.org>.
-   Licensed under the MIT License.
-
-For full license terms and notices, refer to NOTICES.txt.
+* "NVIDIA", "GeForce", and "GDeflate" are trademarks or registered trademarks
+  of NVIDIA Corporation.
+* "Apple", "macOS", and "Metal" are registered trademarks of Apple Inc.
+* All other trademarks and trade names are the property of their respective owners.
