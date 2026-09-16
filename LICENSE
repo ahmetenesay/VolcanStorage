@@ -1,6 +1,6 @@
 MIT License
 
-Copyright (c) 2026 Chiretallyn and the VolcanStorage Contributors.
+Copyright (c) 2026 Ahmet Enes Ay (Chiretallyn) and the VolcanStorage Contributors.
 
 Permission is hereby granted, free of charge, to any person obtaining a copy
 of this software and associated documentation files (the "Software"), to deal
@@ -21,17 +21,36 @@ OUT OF OR IN CONNECTION WITH THE SOFTWARE OR THE USE OR OTHER DEALINGS IN THE
 SOFTWARE.
 
 ==============================================================================
-Third-Party and Base Code Notices:
+TRADEMARKS AND NON-AFFILIATION DISCLAIMER:
+==============================================================================
+VolcanStorage is an independent open-source project and is NOT affiliated with,
+endorsed by, sponsored by, or in any way officially associated with Microsoft
+Corporation, NVIDIA Corporation, or the Khronos Group Inc.
+
+* "DirectStorage", "DirectX", and "Windows" are registered trademarks of
+  Microsoft Corporation.
+* "Vulkan" and the Vulkan logo are registered trademarks of the Khronos Group Inc.
+* "NVIDIA" and "GDeflate" are trademarks or registered trademarks of NVIDIA Corporation.
+* All other trademarks, trade names, and logos belong to their respective owners.
+
+==============================================================================
+THIRD-PARTY OPEN-SOURCE NOTICES AND ATTRIBUTIONS:
+==============================================================================
+VolcanStorage incorporates or references code from the following third-party
+open-source projects under their respective licenses:
 
 1. Microsoft DirectStorage Sample Code:
    Copyright (c) Microsoft Corporation.
    Licensed under the MIT License.
 
-2. GDeflate Compression & Decompression Codec:
+2. NVIDIA GDeflate Codec & Compute Implementations:
    SPDX-FileCopyrightText: Copyright (c) 2020, 2021, 2022 NVIDIA CORPORATION & AFFILIATES.
    SPDX-FileCopyrightText: Copyright (c) Microsoft Corporation.
-   Licensed under the Apache License, Version 2.0.
+   Licensed under the Apache License, Version 2.0 (see NOTICES.txt).
 
 3. libdeflate:
    Copyright 2016-2022 Eric Biggers.
+   Copyright 2017 Jun He <jun.he@linaro.org>.
    Licensed under the MIT License.
+
+For full license terms and notices, refer to NOTICES.txt.
