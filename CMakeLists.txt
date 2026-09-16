@@ -124,3 +124,96 @@ add_subdirectory(src)
 if(VOLCANSTORAGE_BUILD_SAMPLES)
     add_subdirectory(samples/HelloVolcanStorage)
 endif()
+
+# -----------------------------------------------------------------------------
+# Installation & Automated Packaging (bin, include, docs [pdf & html], txt/md)
+# -----------------------------------------------------------------------------
+include(GNUInstallDirs)
+
+# 1. Binaries (Libraries, Executables, Shaders)
+install(TARGETS VolcanStorage
+    RUNTIME DESTINATION bin
+    LIBRARY DESTINATION bin
+    ARCHIVE DESTINATION bin
+)
+
+if(TARGET HelloVolcanStorage)
+    install(TARGETS HelloVolcanStorage RUNTIME DESTINATION bin)
+endif()
+
+if(TARGET GDeflate)
+    install(TARGETS GDeflate RUNTIME DESTINATION bin LIBRARY DESTINATION bin ARCHIVE DESTINATION bin)
+endif()
+
+if(TARGET deflate_static)
+    install(TARGETS deflate_static ARCHIVE DESTINATION bin)
+endif()
+
+if(EXISTS "${CMAKE_CURRENT_SOURCE_DIR}/shaders/GDeflate.spv")
+    install(FILES "${CMAKE_CURRENT_SOURCE_DIR}/shaders/GDeflate.spv" DESTINATION bin/shaders)
+endif()
+
+# 2. Public C++20 Header API
+install(DIRECTORY "${CMAKE_CURRENT_SOURCE_DIR}/include/volcanstorage" DESTINATION include)
+
+# 3. Documentation (Developer Guide PDF and HTML)
+install(DIRECTORY "${CMAKE_CURRENT_SOURCE_DIR}/Docs/" 
+    DESTINATION docs 
+    FILES_MATCHING 
+        PATTERN "*.pdf" 
+        PATTERN "*.html"
+)
+
+# 4. Licensing and Project Manifests (txt & md)
+install(FILES
+    "${CMAKE_CURRENT_SOURCE_DIR}/LICENSE"
+    "${CMAKE_CURRENT_SOURCE_DIR}/NOTICES.txt"
+    "${CMAKE_CURRENT_SOURCE_DIR}/README.md"
+    "${CMAKE_CURRENT_SOURCE_DIR}/SECURITY.md"
+    "${CMAKE_CURRENT_SOURCE_DIR}/SUPPORT.md"
+    "${CMAKE_CURRENT_SOURCE_DIR}/CODE_OF_CONDUCT.md"
+    DESTINATION .
+)
+
+# -----------------------------------------------------------------------------
+# CPack Packaging Configuration (Generates VolcanStorage-<Platform>-<Arch>.zip)
+# -----------------------------------------------------------------------------
+if(WIN32)
+    set(VOLCAN_OS "Windows")
+    if(CMAKE_GENERATOR_PLATFORM STREQUAL "ARM64" OR CMAKE_SYSTEM_PROCESSOR MATCHES "ARM64|aarch64")
+        set(VOLCAN_ARCH "arm64")
+    else()
+        set(VOLCAN_ARCH "x64")
+    endif()
+elseif(APPLE)
+    set(VOLCAN_OS "macOS")
+    if(CMAKE_OSX_ARCHITECTURES MATCHES "arm64" OR CMAKE_SYSTEM_PROCESSOR MATCHES "ARM64|arm64|aarch64")
+        set(VOLCAN_ARCH "arm64")
+    else()
+        set(VOLCAN_ARCH "x64")
+    endif()
+else()
+    set(VOLCAN_OS "Linux")
+    if(CMAKE_SYSTEM_PROCESSOR MATCHES "ARM64|aarch64")
+        set(VOLCAN_ARCH "arm64")
+    else()
+        set(VOLCAN_ARCH "x64")
+    endif()
+endif()
+
+set(CPACK_GENERATOR "ZIP")
+set(CPACK_PACKAGE_NAME "VolcanStorage-${VOLCAN_OS}-${VOLCAN_ARCH}")
+set(CPACK_PACKAGE_FILE_NAME "VolcanStorage-${VOLCAN_OS}-${VOLCAN_ARCH}")
+set(CPACK_PACKAGE_VERSION "${PROJECT_VERSION}")
+set(CPACK_PACKAGE_VENDOR "Ahmet Enes Ay (Chiretallyn)")
+set(CPACK_INCLUDE_TOPLEVEL_DIRECTORY OFF)
+set(CPACK_PACKAGE_DIRECTORY "${CMAKE_CURRENT_SOURCE_DIR}/dist")
+
+include(CPack)
+
+# Convenience target: cmake --build <dir> --target package_zip
+add_custom_target(package_zip
+    COMMAND ${CMAKE_CPACK_COMMAND} -G ZIP -C $<CONFIG>
+    WORKING_DIRECTORY "${CMAKE_CURRENT_BINARY_DIR}"
+    COMMENT "[VolcanStorage] Automated packaging of release zip archive via CPack..."
+)

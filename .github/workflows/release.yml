@@ -91,6 +91,9 @@ jobs:
           if (Test-Path "Docs/VolcanStorage_Developer_Guide.pdf") {
             Copy-Item "Docs/VolcanStorage_Developer_Guide.pdf" "$dist/docs/"
           }
+          if (Test-Path "Docs/VolcanStorage_Developer_Guide.html") {
+            Copy-Item "Docs/VolcanStorage_Developer_Guide.html" "$dist/docs/"
+          }
           Copy-Item "LICENSE" "$dist/"
           Copy-Item "NOTICES.txt" "$dist/"
           Copy-Item "README.md" "$dist/"

@@ -40,6 +40,7 @@ function Package-Target([string]$p, [string]$a, [string]$buildPath, [string]$bin
     if (Test-Path "Docs") {
         New-Item -ItemType Directory -Force -Path "$distDir\docs" | Out-Null
         Copy-Item "Docs\VolcanStorage_Developer_Guide.pdf" "$distDir\docs\" -ErrorAction SilentlyContinue
+        Copy-Item "Docs\VolcanStorage_Developer_Guide.html" "$distDir\docs\" -ErrorAction SilentlyContinue
     }
     Copy-Item "LICENSE" "$distDir\"
     Copy-Item "NOTICES.txt" "$distDir\"
