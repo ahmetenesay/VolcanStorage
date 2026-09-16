@@ -9,6 +9,8 @@ project(VolcanStorage
 set(CMAKE_CXX_STANDARD 20)
 set(CMAKE_CXX_STANDARD_REQUIRED ON)
 set(CMAKE_CXX_EXTENSIONS OFF)
+set(CMAKE_POSITION_INDEPENDENT_CODE ON)
+
 
 # -----------------------------------------------------------------------------
 # Vulkan SDK Detection (VULKAN_SDK is primary, VK_SDK_PATH is fallback)
@@ -27,12 +29,12 @@ if(DEFINED VULKAN_SDK_PATH)
     list(PREPEND CMAKE_PREFIX_PATH "${VULKAN_SDK_PATH}")
     if(WIN32)
         set(Vulkan_INCLUDE_DIR "${VULKAN_SDK_PATH}/Include" CACHE PATH "" FORCE)
-        if(CMAKE_GENERATOR_PLATFORM STREQUAL "ARM64" OR CMAKE_SYSTEM_PROCESSOR MATCHES "ARM64|aarch64")
+        if((CMAKE_GENERATOR_PLATFORM STREQUAL "ARM64" OR CMAKE_SYSTEM_PROCESSOR MATCHES "ARM64|aarch64") AND EXISTS "${VULKAN_SDK_PATH}/Lib-ARM64/vulkan-1.lib")
             set(Vulkan_LIBRARY "${VULKAN_SDK_PATH}/Lib-ARM64/vulkan-1.lib" CACHE FILEPATH "" FORCE)
             message(STATUS "VolcanStorage: Selected ARM64 Vulkan library: ${Vulkan_LIBRARY}")
         else()
             set(Vulkan_LIBRARY "${VULKAN_SDK_PATH}/Lib/vulkan-1.lib" CACHE FILEPATH "" FORCE)
-            message(STATUS "VolcanStorage: Selected x64 Vulkan library: ${Vulkan_LIBRARY}")
+            message(STATUS "VolcanStorage: Selected default Vulkan library: ${Vulkan_LIBRARY}")
         endif()
     endif()
 endif()

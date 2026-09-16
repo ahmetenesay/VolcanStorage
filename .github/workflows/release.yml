@@ -32,7 +32,7 @@ jobs:
             arch: x64
             cmake-arch: ""
           # macOS (Apple Silicon & Intel)
-          - os: macos-latest
+          - os: macos-13
             os-name: macOS
             arch: x64
             cmake-arch: -DCMAKE_OSX_ARCHITECTURES=x86_64
@@ -63,7 +63,7 @@ jobs:
         if: runner.os == 'Linux'
         run: |
           sudo apt-get update
-          sudo apt-get install -y libvulkan-dev libvulkan1 vulkan-headers glslang-tools libshaderc-dev
+          sudo apt-get install -y libvulkan-dev libvulkan1 glslang-tools libshaderc-dev
 
       - name: Install Vulkan & MoltenVK (macOS)
         if: runner.os == 'macOS'

@@ -128,6 +128,24 @@ reports/
 
 .vscode/
 
-#CMake output folders
-[Oo]ut
-[Bb]uild
+# CMake & Build Output Folders
+[Oo]ut/
+[Bb]uild/
+build*/
+dist/
+run_logs/
+
+# -----------------------------------------------------------------------------
+# VolcanStorage Critical Assets Whitelist (MUST NEVER BE IGNORED)
+# -----------------------------------------------------------------------------
+!shaders/
+!shaders/*.spv
+!shaders/*.comp
+!shaders/*.glsl
+!Docs/*.pdf
+!Docs/*.html
+!Docs/*.png
+!nano_banana.png
+!nano_banana_archive.volcan
+!nano_banana_*.ktx2
+
