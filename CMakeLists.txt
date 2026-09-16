@@ -37,7 +37,39 @@ if(DEFINED VULKAN_SDK_PATH)
     endif()
 endif()
 
-find_package(Vulkan REQUIRED)
+find_package(Vulkan QUIET)
+
+if(NOT Vulkan_FOUND AND (APPLE OR CMAKE_SYSTEM_NAME STREQUAL "Darwin"))
+    find_path(MOLTENVK_INCLUDE_DIR NAMES vulkan/vulkan.h HINTS 
+        "/opt/homebrew/opt/molten-vk/include"
+        "/usr/local/opt/molten-vk/include"
+        "/opt/homebrew/include"
+        "/usr/local/include"
+    )
+    find_library(MOLTENVK_LIB NAMES MoltenVK vulkan HINTS 
+        "/opt/homebrew/opt/molten-vk/lib"
+        "/usr/local/opt/molten-vk/lib"
+        "/opt/homebrew/lib"
+        "/usr/local/lib"
+    )
+    if(MOLTENVK_INCLUDE_DIR AND MOLTENVK_LIB)
+        set(Vulkan_FOUND TRUE)
+        set(Vulkan_INCLUDE_DIRS ${MOLTENVK_INCLUDE_DIR})
+        set(Vulkan_LIBRARIES ${MOLTENVK_LIB})
+        if(NOT TARGET Vulkan::Vulkan)
+            add_library(Vulkan::Vulkan UNKNOWN IMPORTED)
+            set_target_properties(Vulkan::Vulkan PROPERTIES
+                INTERFACE_INCLUDE_DIRECTORIES "${Vulkan_INCLUDE_DIRS}"
+                IMPORTED_LOCATION "${Vulkan_LIBRARIES}"
+            )
+        endif()
+        message(STATUS "VolcanStorage: Found MoltenVK manually at ${MOLTENVK_LIB}")
+    endif()
+endif()
+
+if(NOT Vulkan_FOUND)
+    find_package(Vulkan REQUIRED)
+endif()
 
 message(STATUS "VolcanStorage: Found Vulkan Include: ${Vulkan_INCLUDE_DIRS}")
 message(STATUS "VolcanStorage: Found Vulkan Libraries: ${Vulkan_LIBRARIES}")

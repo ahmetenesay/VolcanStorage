@@ -1,7 +1,11 @@
-add_library(VolcanStorage STATIC
+add_library(VolcanStorage
     volcanstorage.cpp
     ../include/volcanstorage/volcanstorage.h
 )
+
+if(BUILD_SHARED_LIBS)
+    target_compile_definitions(VolcanStorage PRIVATE VOLCANSTORAGE_BUILD_SHARED=1)
+endif()
 
 target_include_directories(VolcanStorage
     PUBLIC

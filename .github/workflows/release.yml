@@ -6,11 +6,15 @@ on:
       - 'v*'
   workflow_dispatch:
 
+permissions:
+  contents: write
+
 jobs:
   build:
     name: Build ${{ matrix.os-name }}-${{ matrix.arch }}
     runs-on: ${{ matrix.os }}
     strategy:
+      fail-fast: false
       matrix:
         include:
           # Windows
@@ -26,10 +30,6 @@ jobs:
           - os: ubuntu-latest
             os-name: Linux
             arch: x64
-            cmake-arch: ""
-          - os: ubuntu-24.04-arm
-            os-name: Linux
-            arch: arm64
             cmake-arch: ""
           # macOS (Apple Silicon & Intel)
           - os: macos-13
@@ -47,15 +47,28 @@ jobs:
         with:
           submodules: recursive
 
+      - name: Setup Vulkan SDK (Windows)
+        if: runner.os == 'Windows'
+        uses: humbletim/setup-vulkan-sdk@v1.2.0
+        with:
+          vulkan-query-version: 1.3.290.0
+          vulkan-components: Vulkan-Headers, Vulkan-Loader
+          vulkan-use-cache: true
+
       - name: Install Vulkan SDK (Ubuntu)
         if: runner.os == 'Linux'
         run: |
           sudo apt-get update
-          sudo apt-get install -y libvulkan-dev glslc
+          sudo apt-get install -y libvulkan-dev glslang-tools
+
+      - name: Install Vulkan & MoltenVK (macOS)
+        if: runner.os == 'macOS'
+        run: |
+          brew install molten-vk vulkan-headers
 
       - name: Configure CMake
         run: |
-          cmake -B build -S . -DCMAKE_BUILD_TYPE=Release ${{ matrix.cmake-arch }}
+          cmake -B build -S . -DCMAKE_BUILD_TYPE=Release -DBUILD_SHARED_LIBS=ON ${{ matrix.cmake-arch }}
 
       - name: Build Release
         run: |
@@ -88,8 +101,39 @@ jobs:
 
           Compress-Archive -Path "$dist/*" -DestinationPath "dist/$pkgName.zip" -Force
 
-      - name: Upload Release Asset
+      - name: Upload Artifact
         uses: actions/upload-artifact@v4
         with:
           name: VolcanStorage-${{ matrix.os-name }}-${{ matrix.arch }}
           path: dist/*.zip
+          if-no-files-found: error
+
+  publish-release:
+    name: Create GitHub Release
+    needs: build
+    runs-on: ubuntu-latest
+    if: startsWith(github.ref, 'refs/tags/v')
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+
+      - name: Download all artifacts
+        uses: actions/download-artifact@v4
+        with:
+          path: release-artifacts
+
+      - name: Flatten Artifacts
+        shell: bash
+        run: |
+          mkdir -p release-files
+          find release-artifacts -type f -name "*.zip" -exec cp {} release-files/ \;
+          ls -la release-files
+
+      - name: Create Release
+        uses: softprops/action-gh-release@v2
+        with:
+          files: release-files/*.zip
+          name: VolcanStorage ${{ github.ref_name }}
+          draft: false
+          prerelease: ${{ contains(github.ref_name, 'beta') || contains(github.ref_name, 'rc') || contains(github.ref_name, 'alpha') }}
+          generate_release_notes: true
