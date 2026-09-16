@@ -35,7 +35,7 @@ jobs:
           - os: macos-latest
             os-name: macOS
             arch: x64
-            cmake-arch: -DCMAKE_OSX_ARCHITECTURES=x86_64
+            cmake-arch: -DCMAKE_OSX_ARCHITECTURES=x86_64 -DVOLCANSTORAGE_BUILD_SAMPLES=OFF
           - os: macos-latest
             os-name: macOS
             arch: arm64
@@ -71,7 +71,10 @@ jobs:
           brew install vulkan-headers
           curl -sL https://github.com/KhronosGroup/MoltenVK/releases/download/v1.4.2/MoltenVK-all.tar -o /tmp/MoltenVK.tar
           tar -xf /tmp/MoltenVK.tar -C /tmp
-          sudo cp -R /tmp/MoltenVK/dylib/macOS/* /usr/local/lib/ || sudo cp -R /tmp/MoltenVK/MoltenVK/dylib/macOS/* /usr/local/lib/ || true
+          sudo mkdir -p /usr/local/lib
+          sudo cp /tmp/MoltenVK/MoltenVK/dynamic/dylib/macOS/libMoltenVK.dylib /usr/local/lib/
+          sudo mkdir -p /opt/homebrew/lib
+          sudo cp /tmp/MoltenVK/MoltenVK/dynamic/dylib/macOS/libMoltenVK.dylib /opt/homebrew/lib/
           brew install molten-vk || true
 
       - name: Configure CMake

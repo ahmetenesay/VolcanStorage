@@ -1,4 +1,8 @@
-# VolcanStorage
+<p align="center">
+  <img src="Docs/volcanstorage_logo.png" alt="VolcanStorage Logo" width="240">
+</p>
+
+<h1 align="center">VolcanStorage</h1>
 
 <p align="center">
   <a href="https://en.cppreference.com/w/cpp/20"><img src="https://img.shields.io/badge/C%2B%2B-20-00599C?style=for-the-badge&logo=c%2B%2B&logoColor=white" alt="C++20"></a>
@@ -7,7 +11,7 @@
   <a href="https://kernel.org"><img src="https://img.shields.io/badge/Linux-FCC624?style=for-the-badge&logo=linux&logoColor=black" alt="Linux"></a>
   <a href="https://apple.com/macos"><img src="https://img.shields.io/badge/macOS-000000?style=for-the-badge&logo=apple&logoColor=white" alt="macOS"></a>
   <br>
-  <a href="https://github.com/ahmetenesay/VolcanStorage/releases"><img src="https://img.shields.io/badge/Release-v1.0.0--rc1-orange?style=for-the-badge&logo=github&logoColor=white" alt="Release v1.0.0-rc1"></a>
+  <a href="https://github.com/ahmetenesay/VolcanStorage/releases"><img src="https://img.shields.io/badge/Release-v1.0.0-orange?style=for-the-badge&logo=github&logoColor=white" alt="Release v1.0.0"></a>
   <a href="LICENSE"><img src="https://img.shields.io/badge/License-MIT-success?style=for-the-badge&logo=open-source-initiative&logoColor=white" alt="License: MIT"></a>
   <img src="https://img.shields.io/badge/Arch-x64%20%7C%20ARM64-blueviolet?style=for-the-badge&logo=arm&logoColor=white" alt="Arch x64 / ARM64">
   <a href="Docs/VolcanStorage_Developer_Guide.pdf"><img src="https://img.shields.io/badge/Docs-Developer%20Guide%20(PDF)-E11D48?style=for-the-badge&logo=adobeacrobatreader&logoColor=white" alt="PDF Developer Guide"></a>
