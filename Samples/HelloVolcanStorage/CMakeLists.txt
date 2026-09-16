@@ -6,6 +6,12 @@ target_link_libraries(HelloVolcanStorage
     PRIVATE
         VolcanStorage
         Vulkan::Vulkan
+        GDeflate
+)
+
+target_include_directories(HelloVolcanStorage
+    PRIVATE
+        ${CMAKE_CURRENT_SOURCE_DIR}/../../GDeflate/GDeflate
 )
 
 if(WIN32)

@@ -1,4 +1,5 @@
 #include "volcanstorage/volcanstorage.h"
+#include "GDeflate.h"
 
 #include <iostream>
 #include <vector>
@@ -116,15 +117,75 @@ static void PrintTerminalBanana(const uint8_t* rgba, int width, int height, int 
     std::cout << "\033[0m\n";
 }
 
+#pragma pack(push, 1)
+struct ArchiveHeader
+{
+    char Magic[4];        // "VOST"
+    uint32_t Version;     // 1
+    uint32_t EntryCount;  // 2
+};
+
+struct ArchiveEntry
+{
+    char FileName[64];
+    uint64_t Offset;
+    uint32_t CompressedSize;
+    uint32_t UncompressedSize;
+    uint32_t CompressionFormat; // 1 = GDeflate
+};
+#pragma pack(pop)
+
 int main(int argc, char* argv[])
 {
     std::cout << "====================================================================" << std::endl;
     std::cout << "   VolcanStorage v1.0.0: Nano Banana NVMe -> GPU VRAM Direct Stream " << std::endl;
     std::cout << "====================================================================" << std::endl;
 
-    // 1. Locate Nano Banana Asset
+    // 1. Locate Nano Banana Asset (Prefer GDeflate KTX2 Archive if available)
     std::string assetPath = "nano_banana.raw";
-    if (argc >= 2)
+    bool isGDeflateArchive = false;
+    ArchiveEntry selectedEntry{};
+
+    std::string archivePath = "nano_banana_archive.volcan";
+    if (!std::ifstream(archivePath, std::ios::binary).is_open())
+    {
+        if (std::ifstream("../nano_banana_archive.volcan", std::ios::binary).is_open())
+            archivePath = "../nano_banana_archive.volcan";
+        else if (std::ifstream("../../nano_banana_archive.volcan", std::ios::binary).is_open())
+            archivePath = "../../nano_banana_archive.volcan";
+    }
+
+    std::ifstream archCheck(archivePath, std::ios::binary);
+    if (archCheck.is_open())
+    {
+        ArchiveHeader header{};
+        archCheck.read(reinterpret_cast<char*>(&header), sizeof(header));
+        if (std::memcmp(header.Magic, "VOST", 4) == 0 && header.EntryCount >= 1)
+        {
+            std::vector<ArchiveEntry> allEntries(header.EntryCount);
+            archCheck.read(reinterpret_cast<char*>(allEntries.data()), sizeof(ArchiveEntry) * header.EntryCount);
+            selectedEntry = allEntries[0];
+            isGDeflateArchive = true;
+            assetPath = archivePath;
+            std::cout << "[Archive] \033[1;36mDetected GDeflate Volcan Container: " << archivePath << "\033[0m\n"
+                      << "  - Archive Entry Count: " << header.EntryCount << "\n";
+            for (uint32_t e = 0; e < header.EntryCount; ++e)
+            {
+                std::cout << "    [" << e << "] " << allEntries[e].FileName 
+                          << " (Disk: " << (allEntries[e].CompressedSize / 1024) << " KB -> Uncompressed: " 
+                          << (allEntries[e].UncompressedSize / 1024) << " KB, GDeflate)\n";
+            }
+            std::cout << "  - Selected Streaming Target: " << selectedEntry.FileName << "\n"
+                      << "  - Compressed On Disk: " << selectedEntry.CompressedSize << " bytes (~" 
+                      << (selectedEntry.CompressedSize / 1024) << " KB)\n"
+                      << "  - Uncompressed Payload: " << selectedEntry.UncompressedSize << " bytes (~" 
+                      << (selectedEntry.UncompressedSize / 1024) << " KB)\n"
+                      << "  - Codec: Hardware GDeflate Decompression (GPU Compute / CPU SIMD)\n";
+        }
+        archCheck.close();
+    }
+
+    if (!isGDeflateArchive && argc >= 2)
     {
         assetPath = argv[1];
     }
@@ -132,7 +193,6 @@ int main(int argc, char* argv[])
     std::ifstream checkFile(assetPath, std::ios::binary | std::ios::ate);
     if (!checkFile.is_open())
     {
-        // Check relative paths
         if (std::ifstream("../nano_banana.raw", std::ios::binary | std::ios::ate).is_open())
             assetPath = "../nano_banana.raw";
         else if (std::ifstream("../../nano_banana.raw", std::ios::binary | std::ios::ate).is_open())
@@ -339,9 +399,20 @@ int main(int argc, char* argv[])
     // 10. Build Asynchronous Streaming Request
     Request req{};
     req.SourceFile = storageFile;
-    req.SourceOffset = 0;
-    req.SourceSize = expectedSize;
-    req.DestinationSize = expectedSize;
+    if (isGDeflateArchive)
+    {
+        req.SourceOffset = selectedEntry.Offset;
+        req.SourceSize = selectedEntry.CompressedSize;
+        req.DestinationSize = selectedEntry.UncompressedSize;
+        req.Compression = CompressionFormat::GDeflate;
+    }
+    else
+    {
+        req.SourceOffset = 0;
+        req.SourceSize = expectedSize;
+        req.DestinationSize = expectedSize;
+        req.Compression = CompressionFormat::None;
+    }
     req.DestType = DestinationType::Image;
     req.DestinationImage.Image = bananaImage;
     req.DestinationImage.Subresource.aspectMask = VK_IMAGE_ASPECT_COLOR_BIT;
@@ -376,9 +447,24 @@ int main(int argc, char* argv[])
     if (waitRes == VK_SUCCESS)
     {
         std::cout << "\033[1;32m[SUCCESS] Direct NVMe -> GPU VRAM Streaming COMPLETED!\033[0m" << std::endl;
-        std::cout << "  - Payload Streamed: 4.00 MB (" << expectedSize << " bytes)" << std::endl;
-        std::cout << "  - Elapsed Time:     " << elapsedMicrosec << " us (" << (elapsedMicrosec / 1000.0) << " ms)" << std::endl;
-        std::cout << "  - Direct DMA Rate:  \033[1;36m" << throughputMBps << " MB/s\033[0m" << std::endl;
+        if (isGDeflateArchive)
+        {
+            double diskMB = selectedEntry.CompressedSize / (1024.0 * 1024.0);
+            double vramMB = selectedEntry.UncompressedSize / (1024.0 * 1024.0);
+            double throughputCompressed = diskMB / (elapsedSec > 0 ? elapsedSec : 0.000001);
+            double throughputEffective = vramMB / (elapsedSec > 0 ? elapsedSec : 0.000001);
+            std::cout << "  - Disk Read (Compressed):  " << diskMB << " MB (" << selectedEntry.CompressedSize << " bytes)" << std::endl;
+            std::cout << "  - VRAM Written (Inflated): " << vramMB << " MB (" << selectedEntry.UncompressedSize << " bytes)" << std::endl;
+            std::cout << "  - Elapsed Time:            " << elapsedMicrosec << " us (" << (elapsedMicrosec / 1000.0) << " ms)" << std::endl;
+            std::cout << "  - Physical NVMe Read Rate: \033[1;36m" << throughputCompressed << " MB/s\033[0m" << std::endl;
+            std::cout << "  - Effective Decomp Rate:   \033[1;32m" << throughputEffective << " MB/s\033[0m" << std::endl;
+        }
+        else
+        {
+            std::cout << "  - Payload Streamed: 4.00 MB (" << expectedSize << " bytes)" << std::endl;
+            std::cout << "  - Elapsed Time:     " << elapsedMicrosec << " us (" << (elapsedMicrosec / 1000.0) << " ms)" << std::endl;
+            std::cout << "  - Direct DMA Rate:  \033[1;36m" << throughputMBps << " MB/s\033[0m" << std::endl;
+        }
         std::cout << "  - Final GPU Layout: VK_IMAGE_LAYOUT_SHADER_READ_ONLY_OPTIMAL" << std::endl;
         std::cout << "  - Host RAM Hops:    ZERO (Direct Staging/DMA Path)" << std::endl;
     }
@@ -389,9 +475,28 @@ int main(int argc, char* argv[])
 
     // 11. Read back pixel sample for visual rendering (Terminal + Window)
     std::vector<uint8_t> pixelData(expectedSize);
-    std::ifstream fileRead(assetPath, std::ios::binary);
-    fileRead.read(reinterpret_cast<char*>(pixelData.data()), expectedSize);
-    fileRead.close();
+    if (isGDeflateArchive)
+    {
+        std::ifstream rawCheck("nano_banana.raw", std::ios::binary);
+        if (rawCheck.is_open())
+        {
+            rawCheck.read(reinterpret_cast<char*>(pixelData.data()), expectedSize);
+        }
+        else
+        {
+            std::ifstream archIn(assetPath, std::ios::binary);
+            archIn.seekg(selectedEntry.Offset, std::ios::beg);
+            std::vector<uint8_t> comp(selectedEntry.CompressedSize);
+            archIn.read(reinterpret_cast<char*>(comp.data()), selectedEntry.CompressedSize);
+            GDeflate::Decompress(pixelData.data(), pixelData.size(), comp.data(), comp.size(), 1);
+        }
+    }
+    else
+    {
+        std::ifstream fileRead(assetPath, std::ios::binary);
+        fileRead.read(reinterpret_cast<char*>(pixelData.data()), expectedSize);
+        fileRead.close();
+    }
 
     // Print Terminal TrueColor Banana!
     PrintTerminalBanana(pixelData.data(), imageWidth, imageHeight, 48, 24);

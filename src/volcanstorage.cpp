@@ -442,16 +442,17 @@ private:
         VkBuffer dedicatedBuffer = VK_NULL_HANDLE;
         VkDeviceMemory dedicatedMemory = VK_NULL_HANDLE;
 
-        uint32_t alignedReadSize = (readSize + 255) & ~255;
-        if (m_stagingPoolMapped != nullptr && alignedReadSize <= m_stagingPoolSize)
+        uint32_t neededStagingSize = (task.req.DestinationSize > 0) ? std::max(readSize, task.req.DestinationSize) : readSize;
+        uint32_t alignedStagingSize = (neededStagingSize + 255) & ~255;
+        if (m_stagingPoolMapped != nullptr && alignedStagingSize <= m_stagingPoolSize)
         {
             // Use persistent staging ring-buffer pool (Zero allocation overhead!)
-            if (m_stagingPoolHead + alignedReadSize > m_stagingPoolSize)
+            if (m_stagingPoolHead + alignedStagingSize > m_stagingPoolSize)
             {
                 m_stagingPoolHead = 0;
             }
             stagingSrcOffset = m_stagingPoolHead;
-            m_stagingPoolHead += alignedReadSize;
+            m_stagingPoolHead += alignedStagingSize;
             stagingBuffer = m_stagingPoolBuffer;
             mappedData = static_cast<uint8_t*>(m_stagingPoolMapped) + stagingSrcOffset;
         }
@@ -460,7 +461,7 @@ private:
             // Dedicated fallback buffer for oversized requests
             isDedicatedBuffer = true;
             VkBufferCreateInfo bufferInfo{ VK_STRUCTURE_TYPE_BUFFER_CREATE_INFO };
-            bufferInfo.size = readSize;
+            bufferInfo.size = neededStagingSize;
             bufferInfo.usage = VK_BUFFER_USAGE_TRANSFER_SRC_BIT;
             bufferInfo.sharingMode = VK_SHARING_MODE_EXCLUSIVE;
             if (vkCreateBuffer(m_desc.Device, &bufferInfo, nullptr, &dedicatedBuffer) != VK_SUCCESS)
@@ -484,7 +485,7 @@ private:
             }
 
             vkBindBufferMemory(m_desc.Device, dedicatedBuffer, dedicatedMemory, 0);
-            vkMapMemory(m_desc.Device, dedicatedMemory, 0, readSize, 0, &mappedData);
+            vkMapMemory(m_desc.Device, dedicatedMemory, 0, neededStagingSize, 0, &mappedData);
             stagingBuffer = dedicatedBuffer;
             stagingSrcOffset = 0;
         }
