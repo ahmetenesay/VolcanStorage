@@ -1,0 +1,92 @@
+name: Release Multiplatform Binaries
+
+on:
+  push:
+    tags:
+      - 'v*'
+  workflow_dispatch:
+
+jobs:
+  build:
+    name: Build ${{ matrix.os-name }}-${{ matrix.arch }}
+    runs-on: ${{ matrix.os }}
+    strategy:
+      matrix:
+        include:
+          # Windows
+          - os: windows-latest
+            os-name: Windows
+            arch: x64
+            cmake-arch: -A x64
+          - os: windows-latest
+            os-name: Windows
+            arch: arm64
+            cmake-arch: -A ARM64
+          # Linux
+          - os: ubuntu-latest
+            os-name: Linux
+            arch: x64
+            cmake-arch: ""
+          - os: ubuntu-24.04-arm
+            os-name: Linux
+            arch: arm64
+            cmake-arch: ""
+          # macOS (Apple Silicon & Intel)
+          - os: macos-13
+            os-name: macOS
+            arch: x64
+            cmake-arch: -DCMAKE_OSX_ARCHITECTURES=x86_64
+          - os: macos-latest
+            os-name: macOS
+            arch: arm64
+            cmake-arch: -DCMAKE_OSX_ARCHITECTURES=arm64
+
+    steps:
+      - name: Checkout Code
+        uses: actions/checkout@v4
+        with:
+          submodules: recursive
+
+      - name: Install Vulkan SDK (Ubuntu)
+        if: runner.os == 'Linux'
+        run: |
+          sudo apt-get update
+          sudo apt-get install -y libvulkan-dev glslc
+
+      - name: Configure CMake
+        run: |
+          cmake -B build -S . -DCMAKE_BUILD_TYPE=Release ${{ matrix.cmake-arch }}
+
+      - name: Build Release
+        run: |
+          cmake --build build --config Release
+
+      - name: Package Artifacts
+        shell: pwsh
+        run: |
+          $pkgName = "VolcanStorage-${{ matrix.os-name }}-${{ matrix.arch }}"
+          $dist = "dist/$pkgName"
+          New-Item -ItemType Directory -Path "$dist/bin" -Force
+          New-Item -ItemType Directory -Path "$dist/include/volcanstorage" -Force
+          New-Item -ItemType Directory -Path "$dist/docs" -Force
+
+          Copy-Item "include/volcanstorage/*" "$dist/include/volcanstorage/" -Recurse
+          Copy-Item "LICENSE" "$dist/"
+          Copy-Item "NOTICES.txt" "$dist/"
+          Copy-Item "README.md" "$dist/"
+
+          if (Test-Path "shaders/GDeflate.spv") {
+            Copy-Item "shaders/GDeflate.spv" "$dist/bin/"
+          }
+
+          Get-ChildItem -Path "build" -Recurse -Include *.lib,*.dll,*.so,*.dylib,*.a,HelloVolcanStorage* | ForEach-Object {
+            Copy-Item $_.FullName "$dist/bin/"
+          }
+
+          Compress-Archive -Path "$dist/*" -DestinationPath "dist/$pkgName.zip" -Force
+
+      - name: Upload Release Asset
+        uses: actions/upload-artifact@v4
+        with:
+          name: VolcanStorage-${{ matrix.os-name }}-${{ matrix.arch }}
+          path: dist/*.zip

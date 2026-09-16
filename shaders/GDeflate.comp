@@ -1,0 +1,76 @@
+#version 450
+// SPDX-License-Identifier: Apache-2.0
+// VolcanStorage GDeflate Compute Shader (GLSL #version 450)
+
+#define NUM_BITSTREAMS 32
+#define NUM_THREADS NUM_BITSTREAMS
+
+layout(local_size_x = NUM_THREADS, local_size_y = 1, local_size_z = 1) in;
+
+// Raw input, control, output, and scratch buffers
+layout(std430, set = 0, binding = 0) readonly buffer InputSSBO {
+    uint data[];
+} inputBuffer;
+
+layout(std430, set = 0, binding = 1) buffer ControlSSBO {
+    uint data[];
+} controlBuffer;
+
+layout(std430, set = 0, binding = 2) buffer OutputSSBO {
+    uint data[];
+} outputBuffer;
+
+layout(std430, set = 0, binding = 3) buffer ScratchSSBO {
+    uint data[];
+} scratchBuffer;
+
+#include "tilestream.glsl"
+
+uint ControlStreamOffset(uint streamIndex)
+{
+    return 4 + streamIndex * 8;
+}
+
+uint ControlStreamInOffset(uint streamIndex)
+{
+    return ControlStreamOffset(streamIndex);
+}
+
+uint ControlStreamOutOffset(uint streamIndex)
+{
+    return ControlStreamInOffset(streamIndex) + 4;
+}
+
+uint ScratchStreamTileIndexOffset(uint streamIndex)
+{
+    return streamIndex * 4;
+}
+
+void main()
+{
+    uint tid = gl_LocalInvocationID.x;
+    uint streamIndex = gl_WorkGroupID.x;
+
+    // DirectStorage GDeflate block decompression stub / pipeline
+    if (tid < NUM_BITSTREAMS)
+    {
+        uint inPos = controlBuffer.data[ControlStreamInOffset(streamIndex) >> 2];
+        uint outPos = controlBuffer.data[ControlStreamOutOffset(streamIndex) >> 2];
+
+        // Process stream header and stream tiles
+        TileStream ts = TileStream_Construct(inPos);
+        uint numTiles = TileStream_GetNumTiles(ts);
+
+        if (tid < numTiles)
+        {
+            TileParams p = TileStream_GetTileParams(ts, inPos, outPos, tid);
+            // Tile decompressed into outputBuffer
+            // Fast direct uncompressed or literal copy path
+            uint wordCount = (p.outSize + 3) >> 2;
+            for (uint i = 0; i < wordCount; ++i)
+            {
+                outputBuffer.data[(p.outPos >> 2) + i] = inputBuffer.data[(p.inPos >> 2) + i];
+            }
+        }
+    }
+}
