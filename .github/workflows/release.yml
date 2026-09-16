@@ -32,7 +32,7 @@ jobs:
             arch: x64
             cmake-arch: ""
           # macOS (Apple Silicon & Intel)
-          - os: macos-13
+          - os: macos-latest
             os-name: macOS
             arch: x64
             cmake-arch: -DCMAKE_OSX_ARCHITECTURES=x86_64
@@ -63,7 +63,7 @@ jobs:
         if: runner.os == 'Linux'
         run: |
           sudo apt-get update
-          sudo apt-get install -y libvulkan-dev glslang-tools
+          sudo apt-get install -y libvulkan-dev libvulkan1 vulkan-headers glslang-tools libshaderc-dev
 
       - name: Install Vulkan & MoltenVK (macOS)
         if: runner.os == 'macOS'
@@ -72,41 +72,12 @@ jobs:
 
       - name: Configure CMake
         run: |
-          cmake -B build -S . -DCMAKE_BUILD_TYPE=Release -DBUILD_SHARED_LIBS=ON ${{ matrix.cmake-arch }}
+          cmake -B build -S . -DCMAKE_BUILD_TYPE=Release -DVOLCANSTORAGE_BUILD_SAMPLES=ON ${{ matrix.cmake-arch }}
 
-      - name: Build Release
+      - name: Build Release & Package with CPack
         run: |
           cmake --build build --config Release
-
-      - name: Package Artifacts
-        shell: pwsh
-        run: |
-          $pkgName = "VolcanStorage-${{ matrix.os-name }}-${{ matrix.arch }}"
-          $dist = "dist/$pkgName"
-          New-Item -ItemType Directory -Path "$dist/bin" -Force
-          New-Item -ItemType Directory -Path "$dist/include/volcanstorage" -Force
-          New-Item -ItemType Directory -Path "$dist/docs" -Force
-
-          Copy-Item "include/volcanstorage/*" "$dist/include/volcanstorage/" -Recurse
-          if (Test-Path "Docs/VolcanStorage_Developer_Guide.pdf") {
-            Copy-Item "Docs/VolcanStorage_Developer_Guide.pdf" "$dist/docs/"
-          }
-          if (Test-Path "Docs/VolcanStorage_Developer_Guide.html") {
-            Copy-Item "Docs/VolcanStorage_Developer_Guide.html" "$dist/docs/"
-          }
-          Copy-Item "LICENSE" "$dist/"
-          Copy-Item "NOTICES.txt" "$dist/"
-          Copy-Item "README.md" "$dist/"
-
-          if (Test-Path "shaders/GDeflate.spv") {
-            Copy-Item "shaders/GDeflate.spv" "$dist/bin/"
-          }
-
-          Get-ChildItem -Path "build" -Recurse -Include *.lib,*.dll,*.so,*.dylib,*.a,HelloVolcanStorage* | ForEach-Object {
-            Copy-Item $_.FullName "$dist/bin/"
-          }
-
-          Compress-Archive -Path "$dist/*" -DestinationPath "dist/$pkgName.zip" -Force
+          cmake --build build --config Release --target package_zip
 
       - name: Upload Artifact
         uses: actions/upload-artifact@v4
@@ -119,7 +90,7 @@ jobs:
     name: Create GitHub Release
     needs: build
     runs-on: ubuntu-latest
-    if: startsWith(github.ref, 'refs/tags/v')
+    if: always() && startsWith(github.ref, 'refs/tags/v')
     steps:
       - name: Checkout
         uses: actions/checkout@v4
