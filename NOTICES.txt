@@ -3,7 +3,7 @@ VOLCANSTORAGE THIRD-PARTY NOTICES AND OPEN-SOURCE LICENSES
 ==============================================================================
 
 Project: VolcanStorage
-Author: Ahmet Enes Ay (Chiretallyn) and the VolcanStorage Contributors
+Author: Ahmet Enes (Chiretallyn) and the VolcanStorage Contributors
 Primary License: MIT License (see LICENSE)
 Repository: https://github.com/ahmetenesay/VolcanStorage
 

@@ -129,7 +129,7 @@ streamQueue->Submit();
 
 ## ⚖️ Legal, Licensing & Trademarks
 
-VolcanStorage is an independent, clean-room open-source project authored by **Ahmet Enes Ay (Chiretallyn)** and contributors, published under the **[MIT License](LICENSE)**.
+VolcanStorage is an independent, clean-room open-source project authored by **Ahmet Enes (Chiretallyn)** and contributors, published under the **[MIT License](LICENSE)**.
 
 ### Third-Party Open-Source Attributions
 * **Microsoft DirectStorage Samples:** Copyright (c) Microsoft Corporation. Licensed under the MIT License.
