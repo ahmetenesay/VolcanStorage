@@ -1,5 +1,4 @@
 #include "volcanstorage/volcanstorage.h"
-#include "GDeflate.h"
 
 #include <iostream>
 #include <vector>
@@ -117,24 +116,6 @@ static void PrintTerminalBanana(const uint8_t* rgba, int width, int height, int 
     std::cout << "\033[0m\n";
 }
 
-#pragma pack(push, 1)
-struct ArchiveHeader
-{
-    char Magic[4];        // "VOST"
-    uint32_t Version;     // 1
-    uint32_t EntryCount;  // 2
-};
-
-struct ArchiveEntry
-{
-    char FileName[64];
-    uint64_t Offset;
-    uint32_t CompressedSize;
-    uint32_t UncompressedSize;
-    uint32_t CompressionFormat; // 1 = GDeflate
-};
-#pragma pack(pop)
-
 int main(int argc, char* argv[])
 {
     std::cout << "====================================================================" << std::endl;
@@ -144,7 +125,7 @@ int main(int argc, char* argv[])
     // 1. Locate Nano Banana Asset (Prefer GDeflate KTX2 Archive if available)
     std::string assetPath = (argc >= 2) ? argv[1] : "nano_banana.raw";
     bool isGDeflateArchive = false;
-    ArchiveEntry selectedEntry{};
+    VolcanArchiveEntry selectedEntry{};
 
     std::string archivePath = (argc >= 2) ? argv[1] : "nano_banana_archive.volcan";
     if (!std::ifstream(archivePath, std::ios::binary).is_open())
@@ -162,34 +143,27 @@ int main(int argc, char* argv[])
         }
     }
 
-    std::ifstream archCheck(archivePath, std::ios::binary);
-    if (archCheck.is_open())
+    VolcanArchiveHeader header{};
+    std::vector<VolcanArchiveEntry> allEntries;
+    if (InspectArchive(archivePath, header, allEntries) == VK_SUCCESS && !allEntries.empty())
     {
-        ArchiveHeader header{};
-        archCheck.read(reinterpret_cast<char*>(&header), sizeof(header));
-        if (std::memcmp(header.Magic, "VOST", 4) == 0 && header.EntryCount >= 1)
+        selectedEntry = allEntries[0];
+        isGDeflateArchive = true;
+        assetPath = archivePath;
+        std::cout << "[Archive] \033[1;36mDetected GDeflate Volcan Container: " << archivePath << "\033[0m\n"
+                  << "  - Archive Entry Count: " << header.entryCount << "\n";
+        for (uint32_t e = 0; e < header.entryCount; ++e)
         {
-            std::vector<ArchiveEntry> allEntries(header.EntryCount);
-            archCheck.read(reinterpret_cast<char*>(allEntries.data()), sizeof(ArchiveEntry) * header.EntryCount);
-            selectedEntry = allEntries[0];
-            isGDeflateArchive = true;
-            assetPath = archivePath;
-            std::cout << "[Archive] \033[1;36mDetected GDeflate Volcan Container: " << archivePath << "\033[0m\n"
-                      << "  - Archive Entry Count: " << header.EntryCount << "\n";
-            for (uint32_t e = 0; e < header.EntryCount; ++e)
-            {
-                std::cout << "    [" << e << "] " << allEntries[e].FileName 
-                          << " (Disk: " << (allEntries[e].CompressedSize / 1024) << " KB -> Uncompressed: " 
-                          << (allEntries[e].UncompressedSize / 1024) << " KB, GDeflate)\n";
-            }
-            std::cout << "  - Selected Streaming Target: " << selectedEntry.FileName << "\n"
-                      << "  - Compressed On Disk: " << selectedEntry.CompressedSize << " bytes (~" 
-                      << (selectedEntry.CompressedSize / 1024) << " KB)\n"
-                      << "  - Uncompressed Payload: " << selectedEntry.UncompressedSize << " bytes (~" 
-                      << (selectedEntry.UncompressedSize / 1024) << " KB)\n"
-                      << "  - Codec: Hardware GDeflate Decompression (GPU Compute / CPU SIMD)\n";
+            std::cout << "    [" << e << "] " << allEntries[e].fileName 
+                      << " (Disk: " << (allEntries[e].compressedSize / 1024) << " KB -> Uncompressed: " 
+                      << (allEntries[e].uncompressedSize / 1024) << " KB, GDeflate)\n";
         }
-        archCheck.close();
+        std::cout << "  - Selected Streaming Target: " << selectedEntry.fileName << "\n"
+                  << "  - Compressed On Disk: " << selectedEntry.compressedSize << " bytes (~" 
+                  << (selectedEntry.compressedSize / 1024) << " KB)\n"
+                  << "  - Uncompressed Payload: " << selectedEntry.uncompressedSize << " bytes (~" 
+                  << (selectedEntry.uncompressedSize / 1024) << " KB)\n"
+                  << "  - Codec: Hardware GDeflate Decompression (GPU Compute / CPU SIMD)\n";
     }
 
     std::ifstream checkFile(assetPath, std::ios::binary | std::ios::ate);
@@ -403,9 +377,9 @@ int main(int argc, char* argv[])
     req.SourceFile = storageFile;
     if (isGDeflateArchive)
     {
-        req.SourceOffset = selectedEntry.Offset;
-        req.SourceSize = selectedEntry.CompressedSize;
-        req.DestinationSize = selectedEntry.UncompressedSize;
+        req.SourceOffset = selectedEntry.offset;
+        req.SourceSize = selectedEntry.compressedSize;
+        req.DestinationSize = selectedEntry.uncompressedSize;
         req.Compression = CompressionFormat::GDeflate;
     }
     else
@@ -451,12 +425,12 @@ int main(int argc, char* argv[])
         std::cout << "\033[1;32m[SUCCESS] Direct NVMe -> GPU VRAM Streaming COMPLETED!\033[0m" << std::endl;
         if (isGDeflateArchive)
         {
-            double diskMB = selectedEntry.CompressedSize / (1024.0 * 1024.0);
-            double vramMB = selectedEntry.UncompressedSize / (1024.0 * 1024.0);
+            double diskMB = selectedEntry.compressedSize / (1024.0 * 1024.0);
+            double vramMB = selectedEntry.uncompressedSize / (1024.0 * 1024.0);
             double throughputCompressed = diskMB / (elapsedSec > 0 ? elapsedSec : 0.000001);
             double throughputEffective = vramMB / (elapsedSec > 0 ? elapsedSec : 0.000001);
-            std::cout << "  - Disk Read (Compressed):  " << diskMB << " MB (" << selectedEntry.CompressedSize << " bytes)" << std::endl;
-            std::cout << "  - VRAM Written (Inflated): " << vramMB << " MB (" << selectedEntry.UncompressedSize << " bytes)" << std::endl;
+            std::cout << "  - Disk Read (Compressed):  " << diskMB << " MB (" << selectedEntry.compressedSize << " bytes)" << std::endl;
+            std::cout << "  - VRAM Written (Inflated): " << vramMB << " MB (" << selectedEntry.uncompressedSize << " bytes)" << std::endl;
             std::cout << "  - Elapsed Time:            " << elapsedMicrosec << " us (" << (elapsedMicrosec / 1000.0) << " ms)" << std::endl;
             std::cout << "  - Physical NVMe Read Rate: \033[1;36m" << throughputCompressed << " MB/s\033[0m" << std::endl;
             std::cout << "  - Effective Decomp Rate:   \033[1;32m" << throughputEffective << " MB/s\033[0m" << std::endl;
@@ -487,10 +461,10 @@ int main(int argc, char* argv[])
         else
         {
             std::ifstream archIn(assetPath, std::ios::binary);
-            archIn.seekg(selectedEntry.Offset, std::ios::beg);
-            std::vector<uint8_t> comp(selectedEntry.CompressedSize);
-            archIn.read(reinterpret_cast<char*>(comp.data()), selectedEntry.CompressedSize);
-            GDeflate::Decompress(pixelData.data(), pixelData.size(), comp.data(), comp.size(), 1);
+            archIn.seekg(selectedEntry.offset, std::ios::beg);
+            std::vector<uint8_t> comp(selectedEntry.compressedSize);
+            archIn.read(reinterpret_cast<char*>(comp.data()), selectedEntry.compressedSize);
+            DecompressBuffer(comp.data(), comp.size(), pixelData.data(), pixelData.size(), CompressionFormat::GDeflate);
         }
     }
     else
