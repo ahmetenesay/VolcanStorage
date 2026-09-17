@@ -6,7 +6,7 @@
  * Provides command-line capabilities to pack assets into 4KB Direct I/O sector-aligned
  * archives with custom extensions, inspect headers, and verify CRC32 data integrity.
  *
- * @author VolcanStorage Team & Ahmet Enes Ay
+ * @author Ahmet Enes(Chiretallyn)
  * @version 1.0.0
  * @date 2026
  */
