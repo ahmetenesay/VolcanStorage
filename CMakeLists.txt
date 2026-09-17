@@ -182,6 +182,10 @@ if(TARGET deflate_static)
     install(TARGETS deflate_static ARCHIVE DESTINATION bin)
 endif()
 
+if(TARGET volcan_pack)
+    install(TARGETS volcan_pack RUNTIME DESTINATION bin)
+endif()
+
 if(EXISTS "${CMAKE_CURRENT_SOURCE_DIR}/shaders/GDeflate.spv")
     install(FILES "${CMAKE_CURRENT_SOURCE_DIR}/shaders/GDeflate.spv" DESTINATION bin/shaders)
 endif()

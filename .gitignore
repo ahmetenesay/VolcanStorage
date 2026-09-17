@@ -132,6 +132,7 @@ reports/
 [Oo]ut/
 [Bb]uild/
 build*/
+staging/
 dist/
 run_logs/
 

@@ -10,6 +10,137 @@ permissions:
   contents: write
 
 jobs:
+  # ===========================================================================
+  # 1. Windows Builds (x64 & ARM64)
+  # ===========================================================================
+  build-windows:
+    name: Build Windows-${{ matrix.arch }}
+    runs-on: windows-latest
+    strategy:
+      fail-fast: false
+      matrix:
+        arch: [x64, arm64]
+
+    steps:
+      - name: Checkout Code
+        uses: actions/checkout@v4
+        with:
+          submodules: recursive
+
+      - name: Setup Vulkan SDK
+        uses: humbletim/setup-vulkan-sdk@v1.2.0
+        with:
+          vulkan-query-version: 1.3.290.0
+          vulkan-components: Vulkan-Headers, Vulkan-Loader
+          vulkan-use-cache: true
+
+      - name: Set up Python
+        uses: actions/setup-python@v5
+        with:
+          python-version: '3.12'
+
+      - name: Install Python zstandard
+        run: pip install zstandard
+
+      - name: Configure CMake
+        run: |
+          cmake -B build -S . -A ${{ matrix.arch }} -DVOLCANSTORAGE_BUILD_SAMPLES=ON
+
+      - name: Build Release
+        run: |
+          cmake --build build --config Release
+
+      - name: Install & Stage Files
+        run: |
+          cmake --install build --config Release --prefix staging/win-${{ matrix.arch }}
+
+      - name: Package with Zstandard-22
+        shell: python
+        run: |
+          import sys, os
+          sys.path.insert(0, 'scripts')
+          from package_all import package_target
+          package_target('win-${{ matrix.arch }}', 'VolcanStorage-Windows-${{ matrix.arch }}.zip')
+
+      - name: Upload Artifact
+        uses: actions/upload-artifact@v4
+        with:
+          name: VolcanStorage-Windows-${{ matrix.arch }}
+          path: dist/VolcanStorage-Windows-${{ matrix.arch }}.zip
+          if-no-files-found: error
+
+  # ===========================================================================
+  # 2. Linux Builds (x64 & ARM64 Cross)
+  # ===========================================================================
+  build-linux:
+    name: Build Linux-${{ matrix.arch }}
+    runs-on: ubuntu-latest
+    strategy:
+      fail-fast: false
+      matrix:
+        arch: [x64, arm64]
+        include:
+          - arch: x64
+            cmake-flags: ""
+          - arch: arm64
+            cmake-flags: >-
+              -DCMAKE_SYSTEM_NAME=Linux
+              -DCMAKE_SYSTEM_PROCESSOR=aarch64
+              -DCMAKE_C_COMPILER=aarch64-linux-gnu-gcc
+              -DCMAKE_CXX_COMPILER=aarch64-linux-gnu-g++
+
+    steps:
+      - name: Checkout Code
+        uses: actions/checkout@v4
+        with:
+          submodules: recursive
+
+      - name: Install System Dependencies
+        run: |
+          sudo apt-get update
+          sudo apt-get install -y libvulkan-dev glslc zstd
+          if [ "${{ matrix.arch }}" = "arm64" ]; then
+            sudo apt-get install -y gcc-aarch64-linux-gnu g++-aarch64-linux-gnu
+          fi
+
+      - name: Set up Python
+        uses: actions/setup-python@v5
+        with:
+          python-version: '3.12'
+
+      - name: Install Python zstandard
+        run: pip install zstandard
+
+      - name: Configure CMake
+        run: |
+          cmake -B build -S . -DCMAKE_BUILD_TYPE=Release -DVOLCANSTORAGE_BUILD_SAMPLES=ON ${{ matrix.cmake-flags }}
+
+      - name: Build Release
+        run: |
+          cmake --build build -j$(nproc)
+
+      - name: Install & Stage Files
+        run: |
+          cmake --install build --prefix staging/linux-${{ matrix.arch }}
+
+      - name: Package with Zstandard-22
+        shell: python
+        run: |
+          import sys, os
+          sys.path.insert(0, 'scripts')
+          from package_all import package_target
+          package_target('linux-${{ matrix.arch }}', 'VolcanStorage-Linux-${{ matrix.arch }}.zip')
+
+      - name: Upload Artifact
+        uses: actions/upload-artifact@v4
+        with:
+          name: VolcanStorage-Linux-${{ matrix.arch }}
+          path: dist/VolcanStorage-Linux-${{ matrix.arch }}.zip
+          if-no-files-found: error
+
+  # ===========================================================================
+  # 3. macOS Builds (x64 & ARM64)
+  # ===========================================================================
   build-macos:
     name: Build macOS-${{ matrix.arch }}
     runs-on: macos-latest
@@ -37,25 +168,47 @@ jobs:
           sudo mkdir -p /usr/local/lib
           sudo cp /tmp/MoltenVK/MoltenVK/dynamic/dylib/macOS/libMoltenVK.dylib /usr/local/lib/
 
+      - name: Set up Python
+        uses: actions/setup-python@v5
+        with:
+          python-version: '3.12'
+
+      - name: Install Python zstandard
+        run: pip install zstandard
+
       - name: Configure CMake
         run: |
           cmake -B build -S . -DCMAKE_BUILD_TYPE=Release ${{ matrix.cmake-arch }}
 
-      - name: Build Release & Package with CPack
+      - name: Build Release
         run: |
           cmake --build build --config Release
-          cmake --build build --config Release --target package_zip
+
+      - name: Install & Stage Files
+        run: |
+          cmake --install build --prefix staging/macos-${{ matrix.arch }}
+
+      - name: Package with Zstandard-22
+        shell: python
+        run: |
+          import sys, os
+          sys.path.insert(0, 'scripts')
+          from package_all import package_target
+          package_target('macos-${{ matrix.arch }}', 'VolcanStorage-macOS-${{ matrix.arch }}.zip')
 
       - name: Upload Artifact
         uses: actions/upload-artifact@v4
         with:
           name: VolcanStorage-macOS-${{ matrix.arch }}
-          path: dist/*.zip
+          path: dist/VolcanStorage-macOS-${{ matrix.arch }}.zip
           if-no-files-found: error
 
+  # ===========================================================================
+  # 4. Publish Release (Collects all 6 distributions)
+  # ===========================================================================
   publish-release:
     name: Update GitHub Release
-    needs: build-macos
+    needs: [build-windows, build-linux, build-macos]
     runs-on: ubuntu-latest
     if: always() && startsWith(github.ref, 'refs/tags/v')
     steps:
@@ -76,15 +229,20 @@ jobs:
           find release-artifacts -type f -name "*.zip" -exec cp {} release-files/ \;
           ls -la release-files
 
+          echo "Generating SHA-256 Checksums..."
+          cd release-files
+          sha256sum *.zip > SHA256SUMS.txt
+          cat SHA256SUMS.txt
+          cd ..
+
           PRERELEASE_FLAG=""
           if [[ "${{ github.ref_name }}" == *"beta"* || "${{ github.ref_name }}" == *"rc"* || "${{ github.ref_name }}" == *"alpha"* ]]; then
             PRERELEASE_FLAG="--prerelease"
           fi
 
-          gh release upload "${{ github.ref_name }}" release-files/*.zip --clobber --repo "${{ github.repository }}" || \
-          gh release create "${{ github.ref_name }}" release-files/*.zip \
+          gh release upload "${{ github.ref_name }}" release-files/*.zip release-files/SHA256SUMS.txt --clobber --repo "${{ github.repository }}" || \
+          gh release create "${{ github.ref_name }}" release-files/*.zip release-files/SHA256SUMS.txt \
             --repo "${{ github.repository }}" \
             --title "VolcanStorage ${{ github.ref_name }}" \
             --generate-notes \
-            $PRERELEASE_FLAG || echo "Release upload/creation attempted"
-
+            $PRERELEASE_FLAG || echo "Release upload/creation completed"
