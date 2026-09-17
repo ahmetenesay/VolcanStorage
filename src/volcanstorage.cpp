@@ -137,8 +137,22 @@ public:
         if (m_fileDesc == -1)
             return false;
 
-        ssize_t res = pread(m_fileDesc, destinationBuffer, size, static_cast<off_t>(offset));
-        return (res == static_cast<ssize_t>(size));
+        uint8_t* dst = static_cast<uint8_t*>(destinationBuffer);
+        size_t totalRead = 0;
+        while (totalRead < size)
+        {
+            ssize_t res = pread(m_fileDesc, dst + totalRead, size - totalRead, static_cast<off_t>(offset + totalRead));
+            if (res < 0)
+            {
+                if (errno == EINTR)
+                    continue; // Interrupted by system signal, retry immediately
+                return false; // Critical I/O error
+            }
+            if (res == 0)
+                break; // Unexpected early EOF
+            totalRead += static_cast<size_t>(res);
+        }
+        return (totalRead == size);
 #endif
     }
 };

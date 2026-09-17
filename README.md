@@ -17,7 +17,7 @@
   <a href="Docs/VolcanStorage_Developer_Guide.pdf"><img src="https://img.shields.io/badge/Docs-Developer%20Guide%20(PDF)-E11D48?style=for-the-badge&logo=adobeacrobatreader&logoColor=white" alt="PDF Developer Guide"></a>
 </p>
 
-**VolcanStorage** is a high-performance, cross-platform asynchronous GPU asset streaming and decompression runtime built on **Vulkan 1.1 – 1.4** and modern **C++20**. It provides an open-source, vendor-agnostic equivalent to Microsoft DirectStorage with zero DirectX dependencies.
+**VolcanStorage** is a lightweight, cross-platform asynchronous GPU asset streaming and staging queue built on **Vulkan 1.1 – 1.4** and modern **C++20**. Operating strictly in user-space (Ring 3), it delivers smooth, stutter-free texture and buffer streaming for Vulkan game engines using persistent staging ring-buffers, ReBAR host-visible VRAM, and 64-bit Timeline Semaphores.
 
 ---
 
@@ -25,23 +25,23 @@
 
 * **Cross-Platform Asynchronous I/O**:
   * **Windows**: Native Win32 `FILE_FLAG_OVERLAPPED` and I/O Completion Ports (IOCP).
-  * **Linux**: High-throughput `io_uring` and `pread` with `O_DIRECT` zero-overhead disk access.
-  * **macOS / iOS (Apple Silicon)**: Unified Memory Architecture (UMA) zero-copy streaming via MoltenVK.
+  * **Linux**: High-throughput POSIX `pread` with signal retry loops (native `io_uring` on roadmap).
+  * **macOS / iOS (Apple Silicon)**: Unified Memory Architecture (UMA) zero-copy staging via MoltenVK.
 * **Top-Down Feature Tiers & Graceful Downgrade**:
-  * **Tier 3 (Vulkan 1.3 / 1.4)**: `Synchronization2` (`vkCmdPipelineBarrier2`), 64-bit `Timeline Semaphores`, GPU Compute Decompression.
-  * **Tier 2 (Vulkan 1.2)**: `Timeline Semaphores` (monotonic 64-bit DirectStorage fence equivalent), persistent staging pools.
-  * **Tier 1 (Vulkan 1.1 Fallback)**: Binary `VkFence`, CPU multithreaded decompression fallback. Never crashes on older hardware or drivers.
-* **Hardware-Aware Zero-Copy Streaming Engine**:
+  * **Tier 3 (Vulkan 1.3 / 1.4)**: `Synchronization2` (`vkCmdPipelineBarrier2`), 64-bit `Timeline Semaphores`, async compute decompression.
+  * **Tier 2 (Vulkan 1.2)**: `Timeline Semaphores` (monotonic 64-bit fence equivalent), persistent staging pools.
+  * **Tier 1 (Vulkan 1.1 Fallback)**: Binary `VkFence`, multithreaded CPU decompression fallback. Never crashes on older hardware or drivers.
+* **Hardware-Aware Staging & Memory Engine**:
   * Automatically detects **UMA (Apple Silicon, ARM SoC, AMD APU)** and **Resizable BAR (ReBAR)** on discrete GPUs.
-  * Streams directly from NVMe controllers into host-visible VRAM, eliminating redundant host RAM staging copies.
+  * Streams Direct I/O chunks into host-visible VRAM, minimizing redundant host RAM staging allocations and copies.
 * **Persistent Staging Ring-Buffer Pool (64 MB)**:
   * Eliminates per-request `vkAllocateMemory` and `vkCreateBuffer` overhead, delivering sub-millisecond continuous streaming for open-world games and large virtual textures.
 * **Multi-Target Streaming**:
   * Stream into **`VkBuffer`** (geometry, vertex buffers, index buffers, uniforms).
   * Stream into **`VkImage`** (textures with automatic pipeline layout transition to `SHADER_READ_ONLY_OPTIMAL`).
   * Stream into host **`Memory`** (CPU RAM).
-* **NVIDIA GDeflate GPU Decompression**:
-  * Bundled GDeflate codec with GLSL `#version 450` compute shader (`shaders/GDeflate.comp` SPIR-V) and fast CPU fallback.
+* **NVIDIA GDeflate Decompression**:
+  * Fast SIMD CPU decompression with bundled GDeflate GLSL compute shaders (`shaders/GDeflate.comp` SPIR-V) for async compute queue integration.
 * **Pure Vulkan & Zero DirectX Dependencies**:
   * 100% vendor-agnostic (AMD, NVIDIA, Intel, Apple, Qualcomm). No D3D12, DXGI, COM, or Windows-specific runtimes required.
 
@@ -54,11 +54,12 @@
 | **Graphics API** | DirectX 12 only (Closed D3D12 device binding) | **Vulkan 1.1 – 1.4 Native** (Cross-vendor) |
 | **Operating System** | Windows 10/11 only | **Windows, Linux, macOS (Apple Silicon / MoltenVK)** |
 | **Source Availability** | Closed-source proprietary binary (`dstorage.dll`) | **100% Open Source (MIT License)** |
+| **Execution Domain** | Windows Kernel BypassIO + User-mode DLL | **Strict User-Mode (Ring 3) Vulkan Runtime** |
 | **Compute Shaders** | HLSL Shader Model 6.0 DXIL | **GLSL #version 450 SPIR-V bytecode** |
 | **GPU Architecture** | Discrete PC & Xbox | **Discrete PCIe (ReBAR), Apple Silicon UMA, ARM SoC, APUs** |
 | **Fence Signaling** | `ID3D12Fence` (64-bit monotonic) | **Vulkan Timeline Semaphores** (`uint64_t`) |
-| **Decompression** | GDeflate (D3D12 Compute) | **GDeflate (GLSL Compute SPIR-V + CPU SIMD)** |
-| **Kernel I/O** | Windows BypassIO | **Linux `io_uring` & Windows IOCP / Overlapped** |
+| **Decompression** | GDeflate (D3D12 Compute) | **GDeflate (CPU SIMD + GLSL Compute SPIR-V)** |
+| **Storage I/O** | Windows BypassIO | **Windows IOCP / Overlapped & Linux pread (`io_uring` roadmap)** |
 
 ---
 
@@ -126,7 +127,7 @@ streamQueue->EnqueueRequest(req);
 streamQueue->EnqueueSignalTimeline(storageTimelineSemaphore, 1);
 streamQueue->Submit();
 
-// The texture streams directly from NVMe into GPU VRAM and transitions layout!
+// The texture streams smoothly into GPU VRAM and transitions layout without blocking the render loop!
 ```
 
 ---
