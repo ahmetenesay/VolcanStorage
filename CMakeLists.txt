@@ -257,3 +257,27 @@ add_custom_target(package_zip
     WORKING_DIRECTORY "${CMAKE_CURRENT_BINARY_DIR}"
     COMMENT "[VolcanStorage] Automated packaging of release zip archive via CPack..."
 )
+
+# -----------------------------------------------------------------------------
+# Convenience Custom Targets for Multiplatform Packaging & Zstandard-22
+# -----------------------------------------------------------------------------
+find_package(Python3 COMPONENTS Interpreter QUIET)
+
+if(WIN32)
+    # Target to trigger full 6-platform automated build & package via PowerShell/WSL
+    add_custom_target(dist_all
+        COMMAND powershell.exe -ExecutionPolicy Bypass -File "${CMAKE_CURRENT_SOURCE_DIR}/scripts/build_and_package.ps1"
+        WORKING_DIRECTORY "${CMAKE_CURRENT_SOURCE_DIR}"
+        COMMENT "[VolcanStorage] Triggering full 6-platform multi-architecture build & packaging..."
+    )
+endif()
+
+if(Python3_FOUND)
+    # Target to re-package staged artifacts with Zstandard-22
+    add_custom_target(dist_zstd
+        COMMAND "${Python3_EXECUTABLE}" "${CMAKE_CURRENT_SOURCE_DIR}/scripts/package_all.py"
+        WORKING_DIRECTORY "${CMAKE_CURRENT_SOURCE_DIR}"
+        COMMENT "[VolcanStorage] Packaging distributions with Zstandard Level 22 into dist/..."
+    )
+endif()
+
