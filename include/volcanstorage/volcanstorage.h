@@ -133,6 +133,7 @@ typedef struct VolcanArchiveHeader {
     char magic[4];        // "VOST"
     uint32_t version;     // 1
     uint32_t entryCount;  // Number of archived entries
+    uint32_t alignment;   // Direct I/O boundary alignment (e.g. 4096 bytes)
 } VolcanArchiveHeader;
 
 typedef struct VolcanArchiveEntry {
@@ -141,6 +142,7 @@ typedef struct VolcanArchiveEntry {
     uint32_t compressedSize;
     uint32_t uncompressedSize;
     uint32_t compressionFormat; // 1 = GDeflate, 0 = None
+    uint32_t crc32;             // CRC32 checksum for uncompressed data validation
 } VolcanArchiveEntry;
 #pragma pack(pop)
 
@@ -430,7 +432,7 @@ inline VkResult PackArchive(
     const std::vector<std::string>& srcPaths,
     const std::string& dstArchivePath,
     CompressionFormat format = CompressionFormat::GDeflate,
-    uint32_t level = 9)
+    uint32_t level = 6)
 {
     std::vector<const char*> cstrPaths;
     cstrPaths.reserve(srcPaths.size());

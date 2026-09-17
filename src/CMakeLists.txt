@@ -22,7 +22,10 @@ target_link_libraries(VolcanStorage
 
 if(TARGET GDeflate)
     target_link_libraries(VolcanStorage PUBLIC GDeflate)
-    target_include_directories(VolcanStorage PRIVATE "${CMAKE_CURRENT_SOURCE_DIR}/../GDeflate/GDeflate")
+    target_include_directories(VolcanStorage PRIVATE 
+        "${CMAKE_CURRENT_SOURCE_DIR}/../GDeflate/GDeflate"
+        "${CMAKE_CURRENT_SOURCE_DIR}/../GDeflate/3rdparty/libdeflate"
+    )
     target_compile_definitions(VolcanStorage PRIVATE VOLCANSTORAGE_HAS_GDEFLATE=1)
 endif()
 
@@ -61,7 +64,10 @@ target_link_libraries(VolcanStorage_Shared
 
 if(TARGET GDeflate)
     target_link_libraries(VolcanStorage_Shared PUBLIC GDeflate)
-    target_include_directories(VolcanStorage_Shared PRIVATE "${CMAKE_CURRENT_SOURCE_DIR}/../GDeflate/GDeflate")
+    target_include_directories(VolcanStorage_Shared PRIVATE 
+        "${CMAKE_CURRENT_SOURCE_DIR}/../GDeflate/GDeflate"
+        "${CMAKE_CURRENT_SOURCE_DIR}/../GDeflate/3rdparty/libdeflate"
+    )
     target_compile_definitions(VolcanStorage_Shared PRIVATE VOLCANSTORAGE_HAS_GDEFLATE=1)
 endif()
 

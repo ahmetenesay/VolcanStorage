@@ -6,6 +6,7 @@
 #include <vector>
 #include <string>
 #include <iomanip>
+#include <sstream>
 #include <algorithm>
 #include <cstring>
 
@@ -36,7 +37,7 @@ int main(int argc, char* argv[])
     std::string singleCompressSource;
     std::string inspectPath;
     std::vector<std::string> inputFiles;
-    uint32_t compressionLevel = 9;
+    uint32_t compressionLevel = 6;
 
     for (int i = 1; i < argc; ++i)
     {
@@ -84,14 +85,16 @@ int main(int argc, char* argv[])
 
         std::cout << "  Archive Magic:  " << std::string(header.magic, 4) << "\n"
                   << "  Format Version: " << header.version << "\n"
-                  << "  Entry Count:    " << header.entryCount << "\n\n";
+                  << "  Entry Count:    " << header.entryCount << "\n"
+                  << "  Alignment:      " << header.alignment << " B (Direct I/O unbuffered DMA ready)\n\n";
 
-        std::cout << std::left << std::setw(32) << "Entry Name"
+        std::cout << std::left << std::setw(30) << "Entry Name"
                   << std::right << std::setw(14) << "Offset"
-                  << std::setw(16) << "Comp Size"
-                  << std::setw(16) << "Uncomp Size"
-                  << std::setw(12) << "Ratio" << "\n";
-        std::cout << std::string(90, '-') << "\n";
+                  << std::setw(14) << "Comp Size"
+                  << std::setw(14) << "Uncomp Size"
+                  << std::setw(10) << "Ratio"
+                  << std::setw(14) << "CRC32" << "\n";
+        std::cout << std::string(96, '-') << "\n";
 
         uint64_t totalComp = 0;
         uint64_t totalUncomp = 0;
@@ -102,17 +105,21 @@ int main(int argc, char* argv[])
                 ? (1.0 - (static_cast<double>(e.compressedSize) / e.uncompressedSize)) * 100.0
                 : 0.0;
 
-            std::cout << std::left << std::setw(32) << e.fileName
+            std::stringstream ssCrc;
+            ssCrc << "0x" << std::hex << std::uppercase << std::setfill('0') << std::setw(8) << e.crc32;
+
+            std::cout << std::left << std::setw(30) << e.fileName
                       << std::right << std::setw(14) << e.offset
-                      << std::setw(16) << e.compressedSize
-                      << std::setw(16) << e.uncompressedSize
-                      << std::fixed << std::setprecision(1) << std::setw(10) << ratio << "%\n";
+                      << std::setw(14) << e.compressedSize
+                      << std::setw(14) << e.uncompressedSize
+                      << std::fixed << std::setprecision(1) << std::setw(9) << ratio << "%"
+                      << std::setw(14) << ssCrc.str() << "\n";
 
             totalComp += e.compressedSize;
             totalUncomp += e.uncompressedSize;
         }
 
-        std::cout << std::string(90, '-') << "\n";
+        std::cout << std::string(96, '-') << "\n";
         double totalRatio = (totalUncomp > 0)
             ? (1.0 - (static_cast<double>(totalComp) / totalUncomp)) * 100.0
             : 0.0;
@@ -164,7 +171,7 @@ int main(int argc, char* argv[])
         VkResult res = PackArchive(inputFiles, outputPath, CompressionFormat::GDeflate, compressionLevel);
         if (res != VK_SUCCESS)
         {
-            std::cerr << "[Error] Failed to package archive: " << outputPath << std::endl;
+            std::cerr << "[Error] Failed to package archive: " << outputPath << " (VkResult: " << res << ")" << std::endl;
             return -1;
         }
 

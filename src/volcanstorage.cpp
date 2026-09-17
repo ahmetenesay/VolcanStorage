@@ -29,6 +29,7 @@
 
 #if defined(VOLCANSTORAGE_HAS_GDEFLATE)
     #include "GDeflate.h"
+    #include "libdeflate.h"
 #endif
 
 namespace volcanstorage
@@ -151,16 +152,52 @@ public:
     void* m_stagingPoolMapped{ nullptr };
     uint32_t m_stagingPoolSize{ 0 };
     uint32_t m_stagingPoolHead{ 0 };
+    bool m_stagingCoherent{ true };
+    VkDeviceSize m_nonCoherentAtomSize{ 64 };
+
+    // In-flight command buffer & fence ring to eliminate CPU stalls and achieve full asynchronous pipelining
+    static constexpr size_t kMaxInFlight = 4;
+    struct InFlightSlot
+    {
+        VkCommandBuffer cmdBuffer{ VK_NULL_HANDLE };
+        VkFence fence{ VK_NULL_HANDLE };
+        bool active{ false };
+    };
+    InFlightSlot m_inFlightSlots[kMaxInFlight];
+    size_t m_inFlightIndex{ 0 };
 
     VolcanStorageQueueImpl(const QueueDesc& desc)
         : m_desc(desc)
     {
         ProbeCapabilities();
 
+        VkPhysicalDeviceProperties devProps{};
+        vkGetPhysicalDeviceProperties(m_desc.PhysicalDevice, &devProps);
+        m_nonCoherentAtomSize = devProps.limits.nonCoherentAtomSize;
+
         VkCommandPoolCreateInfo poolInfo{ VK_STRUCTURE_TYPE_COMMAND_POOL_CREATE_INFO };
         poolInfo.queueFamilyIndex = m_desc.TransferQueueFamilyIndex;
         poolInfo.flags = VK_COMMAND_POOL_CREATE_RESET_COMMAND_BUFFER_BIT;
         vkCreateCommandPool(m_desc.Device, &poolInfo, nullptr, &m_commandPool);
+
+        // Preallocate in-flight command buffers and fences
+        VkCommandBufferAllocateInfo cmdAllocInfo{ VK_STRUCTURE_TYPE_COMMAND_BUFFER_ALLOCATE_INFO };
+        cmdAllocInfo.commandPool = m_commandPool;
+        cmdAllocInfo.level = VK_COMMAND_BUFFER_LEVEL_PRIMARY;
+        cmdAllocInfo.commandBufferCount = static_cast<uint32_t>(kMaxInFlight);
+
+        VkCommandBuffer allocatedCmds[kMaxInFlight];
+        if (vkAllocateCommandBuffers(m_desc.Device, &cmdAllocInfo, allocatedCmds) == VK_SUCCESS)
+        {
+            for (size_t i = 0; i < kMaxInFlight; ++i)
+            {
+                m_inFlightSlots[i].cmdBuffer = allocatedCmds[i];
+                VkFenceCreateInfo fenceInfo{ VK_STRUCTURE_TYPE_FENCE_CREATE_INFO };
+                fenceInfo.flags = 0;
+                vkCreateFence(m_desc.Device, &fenceInfo, nullptr, &m_inFlightSlots[i].fence);
+                m_inFlightSlots[i].active = false;
+            }
+        }
 
         // Initialize persistent staging ring-buffer pool
         m_stagingPoolSize = (m_desc.StagingBufferSize > 0) ? m_desc.StagingBufferSize : (64 * 1024 * 1024);
@@ -199,6 +236,17 @@ public:
         if (m_workerThread.joinable())
             m_workerThread.join();
 
+        FlushInFlightTransfers();
+
+        for (size_t i = 0; i < kMaxInFlight; ++i)
+        {
+            if (m_inFlightSlots[i].fence != VK_NULL_HANDLE)
+            {
+                vkDestroyFence(m_desc.Device, m_inFlightSlots[i].fence, nullptr);
+                m_inFlightSlots[i].fence = VK_NULL_HANDLE;
+            }
+        }
+
         if (m_stagingPoolMapped)
         {
             vkUnmapMemory(m_desc.Device, m_stagingPoolMemory);
@@ -221,6 +269,30 @@ public:
         {
             vkDestroyCommandPool(m_desc.Device, m_commandPool, nullptr);
             m_commandPool = VK_NULL_HANDLE;
+        }
+    }
+
+    void FlushInFlightTransfers()
+    {
+        std::vector<VkFence> activeFences;
+        for (size_t i = 0; i < kMaxInFlight; ++i)
+        {
+            if (m_inFlightSlots[i].active && m_inFlightSlots[i].fence != VK_NULL_HANDLE)
+            {
+                activeFences.push_back(m_inFlightSlots[i].fence);
+            }
+        }
+        if (!activeFences.empty())
+        {
+            vkWaitForFences(m_desc.Device, static_cast<uint32_t>(activeFences.size()), activeFences.data(), VK_TRUE, UINT64_MAX);
+            for (size_t i = 0; i < kMaxInFlight; ++i)
+            {
+                if (m_inFlightSlots[i].active)
+                {
+                    vkResetFences(m_desc.Device, 1, &m_inFlightSlots[i].fence);
+                    m_inFlightSlots[i].active = false;
+                }
+            }
         }
     }
 
@@ -269,6 +341,7 @@ public:
         m_cv.wait(lock, [this]() {
             return m_pendingTasks.empty();
         });
+        FlushInFlightTransfers();
         vkQueueWaitIdle(m_desc.TransferQueue);
     }
 
@@ -514,14 +587,15 @@ private:
 
         if (readSuccess)
         {
-            VkCommandBufferAllocateInfo cmdAllocInfo{ VK_STRUCTURE_TYPE_COMMAND_BUFFER_ALLOCATE_INFO };
-            cmdAllocInfo.level = VK_COMMAND_BUFFER_LEVEL_PRIMARY;
-            cmdAllocInfo.commandPool = m_commandPool;
-            cmdAllocInfo.commandBufferCount = 1;
+            InFlightSlot& slot = m_inFlightSlots[m_inFlightIndex];
+            if (slot.active)
+            {
+                vkWaitForFences(m_desc.Device, 1, &slot.fence, VK_TRUE, UINT64_MAX);
+                vkResetFences(m_desc.Device, 1, &slot.fence);
+                slot.active = false;
+            }
 
-            VkCommandBuffer cmdBuffer = VK_NULL_HANDLE;
-            vkAllocateCommandBuffers(m_desc.Device, &cmdAllocInfo, &cmdBuffer);
-
+            VkCommandBuffer cmdBuffer = slot.cmdBuffer;
             VkCommandBufferBeginInfo beginInfo{ VK_STRUCTURE_TYPE_COMMAND_BUFFER_BEGIN_INFO };
             beginInfo.flags = VK_COMMAND_BUFFER_USAGE_ONE_TIME_SUBMIT_BIT;
             vkBeginCommandBuffer(cmdBuffer, &beginInfo);
@@ -588,23 +662,28 @@ private:
 
             vkEndCommandBuffer(cmdBuffer);
 
+            // Memory flush for non-coherent architectures
+            if (!m_stagingCoherent && m_stagingPoolMemory != VK_NULL_HANDLE)
+            {
+                VkMappedMemoryRange range{ VK_STRUCTURE_TYPE_MAPPED_MEMORY_RANGE };
+                range.memory = m_stagingPoolMemory;
+                range.offset = (stagingSrcOffset / m_nonCoherentAtomSize) * m_nonCoherentAtomSize;
+                range.size = ((transferPayloadSize + (stagingSrcOffset % m_nonCoherentAtomSize) + m_nonCoherentAtomSize - 1) / m_nonCoherentAtomSize) * m_nonCoherentAtomSize;
+                vkFlushMappedMemoryRanges(m_desc.Device, 1, &range);
+            }
+
             VkSubmitInfo submitInfo{ VK_STRUCTURE_TYPE_SUBMIT_INFO };
             submitInfo.commandBufferCount = 1;
             submitInfo.pCommandBuffers = &cmdBuffer;
 
-            VkFence copyFence = VK_NULL_HANDLE;
-            VkFenceCreateInfo fenceInfo{ VK_STRUCTURE_TYPE_FENCE_CREATE_INFO };
-            vkCreateFence(m_desc.Device, &fenceInfo, nullptr, &copyFence);
-
-            vkQueueSubmit(m_desc.TransferQueue, 1, &submitInfo, copyFence);
-            vkWaitForFences(m_desc.Device, 1, &copyFence, VK_TRUE, UINT64_MAX);
-
-            vkDestroyFence(m_desc.Device, copyFence, nullptr);
-            vkFreeCommandBuffers(m_desc.Device, m_commandPool, 1, &cmdBuffer);
+            vkQueueSubmit(m_desc.TransferQueue, 1, &submitInfo, slot.fence);
+            slot.active = true;
+            m_inFlightIndex = (m_inFlightIndex + 1) % kMaxInFlight;
         }
 
         if (isDedicatedBuffer)
         {
+            FlushInFlightTransfers();
             vkUnmapMemory(m_desc.Device, dedicatedMemory);
             vkDestroyBuffer(m_desc.Device, dedicatedBuffer, nullptr);
             vkFreeMemory(m_desc.Device, dedicatedMemory, nullptr);
@@ -1070,6 +1149,21 @@ VOLCANSTORAGE_API VkResult volcanCompressFile(
     return VK_SUCCESS;
 }
 
+static uint32_t CalculateCRC32(const void* data, size_t length)
+{
+    const uint8_t* bytes = static_cast<const uint8_t*>(data);
+    uint32_t crc = 0xFFFFFFFFu;
+    for (size_t i = 0; i < length; ++i)
+    {
+        crc ^= bytes[i];
+        for (int b = 0; b < 8; ++b)
+        {
+            crc = (crc >> 1) ^ (0xEDB88320u & (-(int32_t)(crc & 1)));
+        }
+    }
+    return ~crc;
+}
+
 VOLCANSTORAGE_API VkResult volcanPackArchive(
     const char* const* ppSourceFilePaths,
     uint32_t sourceFileCount,
@@ -1085,7 +1179,9 @@ VOLCANSTORAGE_API VkResult volcanPackArchive(
     std::vector<std::vector<uint8_t>> compressedPayloads;
     compressedPayloads.reserve(sourceFileCount);
 
-    uint64_t currentDataOffset = sizeof(VolcanArchiveHeader) + (sourceFileCount * sizeof(VolcanArchiveEntry));
+    // Calculate header + entry table size, aligned to 4096-byte Direct I/O boundary
+    uint64_t tableSize = sizeof(VolcanArchiveHeader) + (sourceFileCount * sizeof(VolcanArchiveEntry));
+    uint64_t currentDataOffset = (tableSize + 4095ULL) & ~4095ULL;
 
     for (uint32_t i = 0; i < sourceFileCount; ++i)
     {
@@ -1100,6 +1196,9 @@ VOLCANSTORAGE_API VkResult volcanPackArchive(
         std::vector<uint8_t> uncompressedData(fileSize);
         in.read(reinterpret_cast<char*>(uncompressedData.data()), fileSize);
         in.close();
+
+        // Calculate uncompressed CRC32 for data integrity validation
+        uint32_t fileCrc = CalculateCRC32(uncompressedData.data(), fileSize);
 
         size_t maxCompSize = volcanCompressBound(fileSize, format);
         std::vector<uint8_t> compressedData(maxCompSize);
@@ -1130,11 +1229,13 @@ VOLCANSTORAGE_API VkResult volcanPackArchive(
         entry.compressedSize = static_cast<uint32_t>(actualCompSize);
         entry.uncompressedSize = static_cast<uint32_t>(fileSize);
         entry.compressionFormat = static_cast<uint32_t>(format);
+        entry.crc32 = fileCrc;
 
         entries.push_back(entry);
         compressedPayloads.push_back(std::move(compressedData));
 
-        currentDataOffset += actualCompSize;
+        // Advance to next 4096-byte Direct I/O boundary for unbuffered zero-copy DMA
+        currentDataOffset = (currentDataOffset + actualCompSize + 4095ULL) & ~4095ULL;
     }
 
     std::ofstream out(pDestinationArchivePath, std::ios::binary);
@@ -1145,15 +1246,38 @@ VOLCANSTORAGE_API VkResult volcanPackArchive(
     std::memcpy(header.magic, "VOST", 4);
     header.version = 1;
     header.entryCount = sourceFileCount;
+    header.alignment = 4096; // 4KB Direct I/O sector aligned
 
     out.write(reinterpret_cast<const char*>(&header), sizeof(header));
     for (const auto& entry : entries)
     {
         out.write(reinterpret_cast<const char*>(&entry), sizeof(entry));
     }
-    for (const auto& payload : compressedPayloads)
+
+    // Zero-pad up to initial 4KB entry offset
+    uint64_t writtenBytes = sizeof(header) + entries.size() * sizeof(VolcanArchiveEntry);
+    if (writtenBytes < entries[0].offset)
     {
-        out.write(reinterpret_cast<const char*>(payload.data()), payload.size());
+        std::vector<char> pad(static_cast<size_t>(entries[0].offset - writtenBytes), 0);
+        out.write(pad.data(), pad.size());
+        writtenBytes = entries[0].offset;
+    }
+
+    // Write payloads with 4KB sector alignment padding
+    for (size_t i = 0; i < entries.size(); ++i)
+    {
+        out.write(reinterpret_cast<const char*>(compressedPayloads[i].data()), compressedPayloads[i].size());
+        writtenBytes += compressedPayloads[i].size();
+
+        if (i + 1 < entries.size())
+        {
+            if (writtenBytes < entries[i + 1].offset)
+            {
+                std::vector<char> pad(static_cast<size_t>(entries[i + 1].offset - writtenBytes), 0);
+                out.write(pad.data(), pad.size());
+                writtenBytes = entries[i + 1].offset;
+            }
+        }
     }
     out.close();
 
@@ -1170,13 +1294,24 @@ VOLCANSTORAGE_API VkResult volcanInspectArchive(
     if (!pArchivePath || !pOutActualEntryCount)
         return VK_ERROR_INITIALIZATION_FAILED;
 
-    std::ifstream in(pArchivePath, std::ios::binary);
+    std::ifstream in(pArchivePath, std::ios::binary | std::ios::ate);
     if (!in.is_open())
         return VK_ERROR_INITIALIZATION_FAILED;
+
+    uint64_t archiveFileSize = static_cast<uint64_t>(in.tellg());
+    in.seekg(0, std::ios::beg);
 
     VolcanArchiveHeader header{};
     in.read(reinterpret_cast<char*>(&header), sizeof(header));
     if (in.gcount() != sizeof(header) || std::memcmp(header.magic, "VOST", 4) != 0)
+        return VK_ERROR_INITIALIZATION_FAILED;
+
+    // Security check: validate entryCount does not exceed sanity bounds
+    if (header.entryCount > 1000000 || header.version == 0)
+        return VK_ERROR_INITIALIZATION_FAILED;
+
+    uint64_t minRequiredSize = sizeof(header) + header.entryCount * sizeof(VolcanArchiveEntry);
+    if (archiveFileSize < minRequiredSize)
         return VK_ERROR_INITIALIZATION_FAILED;
 
     if (pOutHeader)
@@ -1188,6 +1323,15 @@ VOLCANSTORAGE_API VkResult volcanInspectArchive(
     {
         uint32_t toRead = std::min(maxEntries, header.entryCount);
         in.read(reinterpret_cast<char*>(pOutEntries), toRead * sizeof(VolcanArchiveEntry));
+
+        // Security check: validate entry offsets and sizes against archive boundaries
+        for (uint32_t i = 0; i < toRead; ++i)
+        {
+            if (pOutEntries[i].offset + pOutEntries[i].compressedSize > archiveFileSize)
+            {
+                return VK_ERROR_INITIALIZATION_FAILED; // Corrupted or out-of-bounds entry
+            }
+        }
     }
 
     return VK_SUCCESS;

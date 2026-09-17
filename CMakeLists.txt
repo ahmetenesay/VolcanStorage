@@ -147,7 +147,7 @@ endif()
 if(EXISTS "${CMAKE_CURRENT_SOURCE_DIR}/tools/volcan_pack.cpp")
     add_executable(volcan_pack tools/volcan_pack.cpp)
     target_link_libraries(volcan_pack PRIVATE VolcanStorage GDeflate)
-    target_include_directories(volcan_pack PRIVATE include GDeflate/GDeflate)
+    target_include_directories(volcan_pack PRIVATE include GDeflate/GDeflate GDeflate/3rdparty/libdeflate)
 endif()
 
 # -----------------------------------------------------------------------------
