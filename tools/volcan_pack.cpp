@@ -1,5 +1,15 @@
 // SPDX-License-Identifier: MIT
-// VolcanStorage Archiver & GDeflate Compression Utility
+/**
+ * @file volcan_pack.cpp
+ * @brief VolcanStorage Universal GDeflate Archiver & Inspection CLI Tool.
+ *
+ * Provides command-line capabilities to pack assets into 4KB Direct I/O sector-aligned
+ * archives with custom extensions, inspect headers, and verify CRC32 data integrity.
+ *
+ * @author VolcanStorage Team & Ahmet Enes Ay
+ * @version 1.0.0
+ * @date 2026
+ */
 #include "volcanstorage/volcanstorage.h"
 #include <iostream>
 #include <fstream>
@@ -27,7 +37,15 @@ static void PrintUsage(const char* prog)
               << "    Example: " << prog << " -c nano_banana.raw -o nano_banana.gdfl\n\n"
               << "  Inspect archive contents:\n"
               << "    " << prog << " -i <archive_file>\n"
-              << "    Example: " << prog << " -i example.assets.gdfl\n"
+              << "    Example: " << prog << " -i example.assets.gdfl\n\n"
+              << "Compression Level Guidance (-l, --level <1-12>):\n"
+              << "  Level 1-3 : Fast iteration / debug builds (minimal CPU bake time).\n"
+              << "  Level 4-7 : Balanced compression (Level 6 standard).\n"
+              << "  Level 8-12: Maximum compression ratio (Default: 12).\n"
+              << "  * CRITICAL NOTE: GPU decompression throughput is IDENTICAL regardless\n"
+              << "    of compression level. Higher levels produce smaller payloads, which\n"
+              << "    actually accelerates end-to-end streaming by reducing NVMe/PCIe bus\n"
+              << "    bottlenecks. Unless bake time is constrained, ALWAYS use Level 12!\n"
               << "========================================================================\n";
 }
 
@@ -37,7 +55,7 @@ int main(int argc, char* argv[])
     std::string singleCompressSource;
     std::string inspectPath;
     std::vector<std::string> inputFiles;
-    uint32_t compressionLevel = 6;
+    uint32_t compressionLevel = 12; // Production default: Maximum compression ratio
 
     for (int i = 1; i < argc; ++i)
     {

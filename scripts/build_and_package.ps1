@@ -54,14 +54,14 @@ Write-Host "[+] Using CMake: $CMakeExe" -ForegroundColor Green
 # -----------------------------------------------------------------------------
 if (-not $SkipWindows) {
     Write-Host "`n>>> [1/4] Building Windows x64 Release..." -ForegroundColor Yellow
-    & $CMakeExe -B "$RepoRoot\build-win-x64" -A x64 -DVOLCANSTORAGE_BUILD_SAMPLES=ON
-    & $CMakeExe --build "$RepoRoot\build-win-x64" --config Release
-    & $CMakeExe --install "$RepoRoot\build-win-x64" --config Release --prefix "$RepoRoot\staging\win-x64"
+    & $CMakeExe -B "$RepoRoot\build\win-x64" -A x64 -DVOLCANSTORAGE_BUILD_SAMPLES=ON
+    & $CMakeExe --build "$RepoRoot\build\win-x64" --config Release
+    & $CMakeExe --install "$RepoRoot\build\win-x64" --config Release --prefix "$RepoRoot\build\staging\win-x64"
 
     Write-Host "`n>>> [2/4] Building Windows ARM64 Release..." -ForegroundColor Yellow
-    & $CMakeExe -B "$RepoRoot\build-win-arm64" -A ARM64 -DVOLCANSTORAGE_BUILD_SAMPLES=ON
-    & $CMakeExe --build "$RepoRoot\build-win-arm64" --config Release
-    & $CMakeExe --install "$RepoRoot\build-win-arm64" --config Release --prefix "$RepoRoot\staging\win-arm64"
+    & $CMakeExe -B "$RepoRoot\build\win-arm64" -A ARM64 -DVOLCANSTORAGE_BUILD_SAMPLES=ON
+    & $CMakeExe --build "$RepoRoot\build\win-arm64" --config Release
+    & $CMakeExe --install "$RepoRoot\build\win-arm64" --config Release --prefix "$RepoRoot\build\staging\win-arm64"
 }
 
 # -----------------------------------------------------------------------------
@@ -70,10 +70,10 @@ if (-not $SkipWindows) {
 if (-not $SkipLinux) {
     if (Get-Command "wsl" -ErrorAction SilentlyContinue) {
         Write-Host "`n>>> [3/4] Building Linux x64 in WSL..." -ForegroundColor Yellow
-        wsl bash -c "cd /mnt/c/Users/aziml/source/repos/VolcanStorage && cmake -B build-linux-x64 -DCMAKE_BUILD_TYPE=Release -DVOLCANSTORAGE_BUILD_SAMPLES=ON && cmake --build build-linux-x64 -j4 && cmake --install build-linux-x64 --prefix staging/linux-x64"
+        wsl bash -c "cd /mnt/c/Users/aziml/source/repos/VolcanStorage && cmake -B build/linux-x64 -DCMAKE_BUILD_TYPE=Release -DVOLCANSTORAGE_BUILD_SAMPLES=ON && cmake --build build/linux-x64 -j4 && cmake --install build/linux-x64 --prefix build/staging/linux-x64"
 
         Write-Host "`n>>> [4/4] Cross-compiling Linux ARM64 in WSL..." -ForegroundColor Yellow
-        wsl bash -c "cd /mnt/c/Users/aziml/source/repos/VolcanStorage && cmake -B build-linux-arm64 -DCMAKE_BUILD_TYPE=Release -DCMAKE_SYSTEM_NAME=Linux -DCMAKE_SYSTEM_PROCESSOR=aarch64 -DCMAKE_C_COMPILER=aarch64-linux-gnu-gcc -DCMAKE_CXX_COMPILER=aarch64-linux-gnu-g++ -DVulkan_LIBRARY=/usr/lib/aarch64-linux-gnu/libvulkan.so -DVulkan_INCLUDE_DIR=/usr/include -DVOLCANSTORAGE_BUILD_SAMPLES=ON && cmake --build build-linux-arm64 -j4 && cmake --install build-linux-arm64 --prefix staging/linux-arm64"
+        wsl bash -c "cd /mnt/c/Users/aziml/source/repos/VolcanStorage && cmake -B build/linux-arm64 -DCMAKE_BUILD_TYPE=Release -DCMAKE_SYSTEM_NAME=Linux -DCMAKE_SYSTEM_PROCESSOR=aarch64 -DCMAKE_C_COMPILER=aarch64-linux-gnu-gcc -DCMAKE_CXX_COMPILER=aarch64-linux-gnu-g++ -DVulkan_LIBRARY=/usr/lib/aarch64-linux-gnu/libvulkan.so -DVulkan_INCLUDE_DIR=/usr/include -DVOLCANSTORAGE_BUILD_SAMPLES=ON && cmake --build build/linux-arm64 -j4 && cmake --install build/linux-arm64 --prefix build/staging/linux-arm64"
     } else {
         Write-Warning "WSL not found. Skipping Linux compilation."
     }

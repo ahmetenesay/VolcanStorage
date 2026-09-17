@@ -19,7 +19,9 @@ from pathlib import Path
 
 REPO_ROOT = Path(__file__).resolve().parent.parent
 DIST_DIR = REPO_ROOT / "dist"
-STAGING_DIR = REPO_ROOT / "staging"
+STAGING_DIR = REPO_ROOT / "build" / "staging"
+if not STAGING_DIR.exists() and (REPO_ROOT / "staging").exists():
+    STAGING_DIR = REPO_ROOT / "staging"
 DOCS_DIR = REPO_ROOT / "Docs"
 INCLUDE_DIR = REPO_ROOT / "include"
 SHADERS_DIR = REPO_ROOT / "shaders"

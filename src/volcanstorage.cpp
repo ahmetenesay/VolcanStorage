@@ -1,3 +1,17 @@
+// SPDX-License-Identifier: MIT
+/**
+ * @file volcanstorage.cpp
+ * @brief VolcanStorage Core Implementation & Vulkan Hardware Integration Engine.
+ *
+ * Implements the asynchronous Direct I/O storage pipeline, in-flight command buffer
+ * ring architecture, cache coherency synchronization, GPU compute decompression,
+ * and high-throughput archive packaging runtime.
+ *
+ * @author Ahmet Enes(Chiretallyn)
+ * @version 1.0.0
+ * @date 2026
+ */
+
 #include "volcanstorage/volcanstorage.h"
 
 #include <vector>
@@ -35,29 +49,48 @@
 namespace volcanstorage
 {
 
-// -----------------------------------------------------------------------------
-// File Implementation
-// -----------------------------------------------------------------------------
+/* ========================================================================= */
+/* Direct I/O File Descriptor Implementation                                 */
+/* ========================================================================= */
+
+/**
+ * @class VolcanStorageFileImpl
+ * @brief Low-level OS file descriptor wrapper optimized for unbuffered Direct I/O.
+ *
+ * Operates directly on native file handles:
+ * - On Windows: Uses Win32 `HANDLE` opened with `FILE_FLAG_OVERLAPPED` and
+ *   sector-aligned DMA buffers via `ReadFile` / `GetOverlappedResult`.
+ * - On POSIX / Linux: Uses native integer file descriptors with `pread` to guarantee
+ *   thread-safe concurrent reads without mutating internal file seek pointers.
+ */
 class VolcanStorageFileImpl : public IVolcanStorageFile
 {
 public:
 #if defined(_WIN32)
-    HANDLE m_fileHandle{ INVALID_HANDLE_VALUE };
+    HANDLE m_fileHandle{ INVALID_HANDLE_VALUE }; ///< Native Win32 file handle
 #else
-    int m_fileDesc{ -1 };
+    int m_fileDesc{ -1 };                         ///< Native POSIX file descriptor
 #endif
-    FileInformation m_info{};
+    FileInformation m_info{};                     ///< Cached file size and sector alignment metrics
 
+    /** @brief Destructor ensures clean handle closure. */
     ~VolcanStorageFileImpl() override
     {
         Close();
     }
 
+    /**
+     * @brief Queries cached file metadata.
+     * @return FileInformation containing size on disk and sector alignment size.
+     */
     FileInformation GetInformation() const override
     {
         return m_info;
     }
 
+    /**
+     * @brief Closes the underlying operating system file descriptor.
+     */
     void Close() override
     {
 #if defined(_WIN32)
@@ -75,6 +108,14 @@ public:
 #endif
     }
 
+    /**
+     * @brief Performs an asynchronous or direct seek-free block read from storage.
+     *
+     * @param[in]  offset            Byte offset within the file (must be 4KB aligned for Direct I/O).
+     * @param[in]  size              Number of bytes to read.
+     * @param[out] destinationBuffer Pinned target memory buffer to receive read bytes.
+     * @return True if the requested number of bytes were read successfully; false otherwise.
+     */
     bool ReadAsync(uint64_t offset, uint32_t size, void* destinationBuffer)
     {
 #if defined(_WIN32)
@@ -102,9 +143,18 @@ public:
     }
 };
 
-// -----------------------------------------------------------------------------
-// Vulkan Staging Memory Helper
-// -----------------------------------------------------------------------------
+/* ========================================================================= */
+/* Vulkan Staging Memory Helper                                              */
+/* ========================================================================= */
+
+/**
+ * @brief Finds a compatible Vulkan memory type matching requirement bits and property flags.
+ *
+ * @param[in] physicalDevice Vulkan physical device handle.
+ * @param[in] typeFilter     Bitmask of allowed memory types returned by driver.
+ * @param[in] properties     Required memory property flags (e.g. HOST_VISIBLE | HOST_COHERENT).
+ * @return Compatible memory type index, or 0 if none explicitly matched.
+ */
 static uint32_t FindMemoryType(VkPhysicalDevice physicalDevice, uint32_t typeFilter, VkMemoryPropertyFlags properties)
 {
     VkPhysicalDeviceMemoryProperties memProperties;
@@ -120,15 +170,29 @@ static uint32_t FindMemoryType(VkPhysicalDevice physicalDevice, uint32_t typeFil
     return 0;
 }
 
-// -----------------------------------------------------------------------------
-// Queue Implementation
-// -----------------------------------------------------------------------------
+/* ========================================================================= */
+/* Asynchronous Storage Queue Implementation                                 */
+/* ========================================================================= */
+
+/**
+ * @class VolcanStorageQueueImpl
+ * @brief Internal implementation of IVolcanStorageQueue managing pipelined DMA transfers.
+ *
+ * Key Architecture:
+ * - **In-Flight Command Buffer Ring (`kMaxInFlight = 4`)**: Keeps up to 4 GPU DMA
+ *   operations executing concurrently while CPU reads subsequent disk chunks.
+ * - **Persistent Staging Pool**: Pre-allocated host-visible mapped staging ring
+ *   buffer eliminating dynamic memory allocations during asset streaming.
+ * - **Cache Coherency Atom Flushing**: Flushes non-coherent host memory ranges
+ *   aligned to `VkPhysicalDeviceLimits::nonCoherentAtomSize` for cross-vendor safety.
+ */
 class VolcanStorageQueueImpl : public IVolcanStorageQueue
 {
 public:
     QueueDesc m_desc;
     VkCommandPool m_commandPool{ VK_NULL_HANDLE };
 
+    /** @brief Queued storage request or synchronization signal entry. */
     struct QueuedTask
     {
         Request req;
@@ -166,6 +230,10 @@ public:
     InFlightSlot m_inFlightSlots[kMaxInFlight];
     size_t m_inFlightIndex{ 0 };
 
+    /**
+     * @brief Constructs and initializes the asynchronous storage queue and staging pools.
+     * @param[in] desc Queue creation descriptor containing Vulkan device and queue handles.
+     */
     VolcanStorageQueueImpl(const QueueDesc& desc)
         : m_desc(desc)
     {
@@ -229,6 +297,7 @@ public:
         m_workerThread = std::thread(&VolcanStorageQueueImpl::WorkerLoop, this);
     }
 
+    /** @brief Destructor shuts down worker thread and frees staging resources. */
     ~VolcanStorageQueueImpl() override
     {
         m_running = false;
@@ -272,6 +341,10 @@ public:
         }
     }
 
+    /**
+     * @brief Waits for and resets all currently active in-flight hardware fences.
+     * Guarantees all pending GPU DMA commands have completed before recycling buffers.
+     */
     void FlushInFlightTransfers()
     {
         std::vector<VkFence> activeFences;
@@ -296,11 +369,13 @@ public:
         }
     }
 
+    /** @brief Returns probed hardware capabilities and detected feature tiers. */
     VolcanDeviceCapabilities GetCapabilities() const override
     {
         return m_caps;
     }
 
+    /** @brief Enqueues an asynchronous request into the thread-safe work queue. */
     void EnqueueRequest(const Request& request) override
     {
         std::lock_guard<std::mutex> lock(m_queueMutex);
@@ -310,6 +385,7 @@ public:
         m_pendingTasks.push(task);
     }
 
+    /** @brief Enqueues a binary fence / semaphore signal task. */
     void EnqueueSignal(VkFence fence, VkSemaphore semaphore) override
     {
         std::lock_guard<std::mutex> lock(m_queueMutex);
@@ -320,6 +396,7 @@ public:
         m_pendingTasks.push(task);
     }
 
+    /** @brief Enqueues a 64-bit timeline semaphore signal task. */
     void EnqueueSignalTimeline(VkSemaphore timelineSemaphore, uint64_t signalValue) override
     {
         std::lock_guard<std::mutex> lock(m_queueMutex);
@@ -330,11 +407,13 @@ public:
         m_pendingTasks.push(task);
     }
 
+    /** @brief Wakes up background worker thread to process queued tasks. */
     void Submit() override
     {
         m_cv.notify_one();
     }
 
+    /** @brief Blocks until the queue is completely drained and idle. */
     void WaitIdle() override
     {
         std::unique_lock<std::mutex> lock(m_queueMutex);
@@ -346,6 +425,10 @@ public:
     }
 
 private:
+    /**
+     * @brief Probes Vulkan device features, memory heaps, and extensions.
+     * Determines UMA, Resizable BAR, Timeline Semaphores, and Synchronization2 availability.
+     */
     void ProbeCapabilities()
     {
         VkPhysicalDeviceProperties props{};
@@ -429,6 +512,10 @@ private:
     }
 
 private:
+    /**
+     * @brief Dedicated worker thread loop consuming storage tasks from the pending queue.
+     * Continuously processes reads, decompressions, and GPU DMA transfers until queue destruction.
+     */
     void WorkerLoop()
     {
         while (m_running)
@@ -452,6 +539,10 @@ private:
         }
     }
 
+    /**
+     * @brief Executes a single storage task (read, decompress, stage, upload, or signal).
+     * @param[in] task The QueuedTask to execute.
+     */
     void ProcessTask(const QueuedTask& task)
     {
         if (task.isSignalOnly)
@@ -691,12 +782,21 @@ private:
     }
 };
 
-// -----------------------------------------------------------------------------
-// Factory Implementation
-// -----------------------------------------------------------------------------
+/* ========================================================================= */
+/* Factory Implementation                                                    */
+/* ========================================================================= */
+
+/**
+ * @class VolcanStorageFactoryImpl
+ * @brief Internal factory coordinator creating Direct I/O files and storage queues.
+ */
 class VolcanStorageFactoryImpl : public IVolcanStorageFactory
 {
 public:
+    /**
+     * @brief Opens a file descriptor from a UTF-8 path.
+     * Transcodes to UTF-16 on Windows and opens with FILE_FLAG_OVERLAPPED.
+     */
     VkResult OpenFile(const char* utf8Path, IVolcanStorageFile** ppFile) override
     {
         if (!utf8Path || !ppFile)
@@ -728,6 +828,9 @@ public:
 #endif
     }
 
+    /**
+     * @brief Opens a file descriptor from a wide character path (Windows native UTF-16).
+     */
     VkResult OpenFileW(const wchar_t* widePath, IVolcanStorageFile** ppFile) override
     {
         if (!widePath || !ppFile)
@@ -763,6 +866,9 @@ public:
 #endif
     }
 
+    /**
+     * @brief Instantiates a new asynchronous storage queue.
+     */
     VkResult CreateQueue(const QueueDesc& desc, IVolcanStorageQueue** ppQueue) override
     {
         if (!ppQueue || desc.Device == VK_NULL_HANDLE || desc.TransferQueue == VK_NULL_HANDLE)
@@ -773,6 +879,11 @@ public:
     }
 };
 
+/**
+ * @brief Retrieves the singleton IVolcanStorageFactory instance.
+ * @param[out] ppFactory Address to store the factory pointer.
+ * @return VK_SUCCESS on success.
+ */
 extern "C" VOLCANSTORAGE_API VkResult VolcanStorageGetFactory(IVolcanStorageFactory** ppFactory)
 {
     if (!ppFactory)
@@ -1149,6 +1260,13 @@ VOLCANSTORAGE_API VkResult volcanCompressFile(
     return VK_SUCCESS;
 }
 
+/**
+ * @brief Standalone IEEE 802.3 CRC32 implementation without external CRT dependencies.
+ *
+ * @param[in] data   Pointer to byte buffer to checksum.
+ * @param[in] length Number of bytes to process.
+ * @return 32-bit CRC checksum.
+ */
 static uint32_t CalculateCRC32(const void* data, size_t length)
 {
     const uint8_t* bytes = static_cast<const uint8_t*>(data);
@@ -1164,6 +1282,9 @@ static uint32_t CalculateCRC32(const void* data, size_t length)
     return ~crc;
 }
 
+/**
+ * @brief Packages files into a 4KB sector-aligned VolcanStorage archive.
+ */
 VOLCANSTORAGE_API VkResult volcanPackArchive(
     const char* const* ppSourceFilePaths,
     uint32_t sourceFileCount,
