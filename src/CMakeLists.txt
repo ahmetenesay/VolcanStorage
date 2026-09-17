@@ -13,6 +13,7 @@ target_include_directories(VolcanStorage
         ${Vulkan_INCLUDE_DIRS}
     PRIVATE
         ${CMAKE_CURRENT_SOURCE_DIR}
+        ${CMAKE_CURRENT_SOURCE_DIR}/..
 )
 
 target_link_libraries(VolcanStorage
@@ -55,6 +56,7 @@ target_include_directories(VolcanStorage_Shared
         ${Vulkan_INCLUDE_DIRS}
     PRIVATE
         ${CMAKE_CURRENT_SOURCE_DIR}
+        ${CMAKE_CURRENT_SOURCE_DIR}/..
 )
 
 target_link_libraries(VolcanStorage_Shared

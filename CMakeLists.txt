@@ -113,13 +113,16 @@ if(GLSLC_EXECUTABLE)
     set(SHADER_SPV "${CMAKE_CURRENT_BINARY_DIR}/shaders/GDeflate.spv")
     file(MAKE_DIRECTORY "${CMAKE_CURRENT_BINARY_DIR}/shaders")
     
+    set(SHADER_SPV_H "${CMAKE_CURRENT_SOURCE_DIR}/shaders/GDeflate_comp.spv.h")
+    
     add_custom_command(
-        OUTPUT "${SHADER_SPV}"
+        OUTPUT "${SHADER_SPV}" "${SHADER_SPV_H}"
         COMMAND "${GLSLC_EXECUTABLE}" -I"${CMAKE_CURRENT_SOURCE_DIR}/shaders" "${SHADER_SRC}" -o "${SHADER_SPV}"
+        COMMAND "${GLSLC_EXECUTABLE}" -I"${CMAKE_CURRENT_SOURCE_DIR}/shaders" -mfmt=c "${SHADER_SRC}" -o "${SHADER_SPV_H}"
         DEPENDS "${SHADER_SRC}" "${CMAKE_CURRENT_SOURCE_DIR}/shaders/tilestream.glsl"
-        COMMENT "Compiling GDeflate GLSL compute shader to SPIR-V..."
+        COMMENT "Compiling GDeflate GLSL compute shader to SPIR-V binary and C header..."
     )
-    add_custom_target(VolcanStorageShaders ALL DEPENDS "${SHADER_SPV}")
+    add_custom_target(VolcanStorageShaders ALL DEPENDS "${SHADER_SPV}" "${SHADER_SPV_H}")
 endif()
 
 # -----------------------------------------------------------------------------
