@@ -144,6 +144,132 @@ inline void StreamCopy(void* __restrict dst, const void* __restrict src, size_t 
     std::memcpy(dst, src, size);
 }
 
+/**
+ * @brief Hardware pause instruction for spin-loops without OS context-switch latency.
+ */
+inline void HardwarePause()
+{
+#if defined(_MSC_VER) || defined(__x86_64__) || defined(_M_X64)
+    _mm_pause();
+#elif defined(__aarch64__) || defined(_M_ARM64)
+    #if defined(_MSC_VER)
+        __yield();
+    #else
+        asm volatile("yield" ::: "memory");
+    #endif
+#endif
+}
+
+/**
+ * @brief Descriptor for aligned virtual page allocations (supports 2MB Large Pages & VirtualLock).
+ */
+struct VirtualPageAllocation
+{
+    void* Address{ nullptr };
+    size_t Size{ 0 };
+    bool IsLargePage{ false };
+    bool IsLocked{ false };
+};
+
+/**
+ * @brief Allocates sector/page-aligned virtual memory with Large Page and VirtualLock capabilities.
+ */
+inline VirtualPageAllocation AllocateVirtualPages(size_t size, bool tryLargePages, bool lockMemory)
+{
+    VirtualPageAllocation alloc{};
+    alloc.Size = size;
+
+#if defined(_WIN32)
+    // 1. Attempt 2MB Large Pages if requested and supported
+    if (tryLargePages)
+    {
+        SIZE_T minLarge = GetLargePageMinimum();
+        if (minLarge > 0 && (size % minLarge == 0))
+        {
+            alloc.Address = VirtualAlloc(nullptr, size, MEM_COMMIT | MEM_RESERVE | MEM_LARGE_PAGES, PAGE_READWRITE);
+            if (alloc.Address != nullptr)
+            {
+                alloc.IsLargePage = true;
+            }
+        }
+    }
+
+    // 2. Fallback to standard 4KB/64KB virtual allocation
+    if (!alloc.Address)
+    {
+        alloc.Address = VirtualAlloc(nullptr, size, MEM_COMMIT | MEM_RESERVE, PAGE_READWRITE);
+    }
+
+    // 3. Physical Working Set Lock (prevents pagefile swapping during asset streaming)
+    if (alloc.Address && lockMemory)
+    {
+        if (VirtualLock(alloc.Address, size))
+        {
+            alloc.IsLocked = true;
+        }
+    }
+#else
+    #if defined(MAP_HUGETLB)
+    if (tryLargePages)
+    {
+        alloc.Address = mmap(nullptr, size, PROT_READ | PROT_WRITE, MAP_PRIVATE | MAP_ANONYMOUS | MAP_HUGETLB, -1, 0);
+        if (alloc.Address != MAP_FAILED)
+        {
+            alloc.IsLargePage = true;
+        }
+        else
+        {
+            alloc.Address = nullptr;
+        }
+    }
+    #endif
+    if (!alloc.Address)
+    {
+        int res = posix_memalign(&alloc.Address, 4096, size);
+        if (res != 0)
+            alloc.Address = nullptr;
+    }
+    if (alloc.Address && lockMemory)
+    {
+        if (mlock(alloc.Address, size) == 0)
+        {
+            alloc.IsLocked = true;
+        }
+    }
+#endif
+    return alloc;
+}
+
+/**
+ * @brief Releases virtual memory and unlocks from physical RAM working set.
+ */
+inline void FreeVirtualPages(const VirtualPageAllocation& alloc)
+{
+    if (!alloc.Address)
+        return;
+
+#if defined(_WIN32)
+    if (alloc.IsLocked)
+    {
+        VirtualUnlock(alloc.Address, alloc.Size);
+    }
+    VirtualFree(alloc.Address, 0, MEM_RELEASE);
+#else
+    if (alloc.IsLocked)
+    {
+        munlock(alloc.Address, alloc.Size);
+    }
+    #if defined(MAP_HUGETLB)
+    if (alloc.IsLargePage)
+    {
+        munmap(alloc.Address, alloc.Size);
+        return;
+    }
+    #endif
+    free(alloc.Address);
+#endif
+}
+
 } // namespace detail
 
 /* ========================================================================= */
@@ -265,13 +391,15 @@ public:
             uint64_t alignedEnd = ((offset + size + 4095) / 4096) * 4096;
             uint32_t alignedSize = static_cast<uint32_t>(alignedEnd - alignedOffset);
 
-            void* bounceBuffer = _aligned_malloc(alignedSize, 4096);
+            auto bounceAlloc = detail::AllocateVirtualPages(alignedSize, false, true);
+            void* bounceBuffer = bounceAlloc.Address;
             if (!bounceBuffer)
                 return false;
 
             OVERLAPPED ov{};
             ov.Offset = static_cast<DWORD>(alignedOffset & 0xFFFFFFFF);
             ov.OffsetHigh = static_cast<DWORD>((alignedOffset >> 32) & 0xFFFFFFFF);
+            ov.hEvent = CreateEventW(nullptr, TRUE, FALSE, nullptr);
 
             DWORD bytesRead = 0;
             BOOL ok = ReadFile(m_fileHandle, bounceBuffer, alignedSize, &bytesRead, &ov);
@@ -279,20 +407,23 @@ public:
             {
                 ok = GetOverlappedResult(m_fileHandle, &ov, &bytesRead, TRUE);
             }
+            if (ov.hEvent)
+                CloseHandle(ov.hEvent);
 
             if (ok && bytesRead >= delta + size)
             {
                 detail::StreamCopy(destinationBuffer, static_cast<const uint8_t*>(bounceBuffer) + delta, size);
-                _aligned_free(bounceBuffer);
+                detail::FreeVirtualPages(bounceAlloc);
                 return true;
             }
-            _aligned_free(bounceBuffer);
+            detail::FreeVirtualPages(bounceAlloc);
             return false;
         }
 
         OVERLAPPED overlapped{};
         overlapped.Offset = static_cast<DWORD>(offset & 0xFFFFFFFF);
         overlapped.OffsetHigh = static_cast<DWORD>((offset >> 32) & 0xFFFFFFFF);
+        overlapped.hEvent = CreateEventW(nullptr, TRUE, FALSE, nullptr);
 
         DWORD bytesRead = 0;
         BOOL result = ReadFile(m_fileHandle, destinationBuffer, size, &bytesRead, &overlapped);
@@ -300,6 +431,8 @@ public:
         {
             result = GetOverlappedResult(m_fileHandle, &overlapped, &bytesRead, TRUE);
         }
+        if (overlapped.hEvent)
+            CloseHandle(overlapped.hEvent);
         return (result != FALSE) && (bytesRead == size);
 #else
         if (m_fileDesc == -1)
@@ -432,6 +565,10 @@ public:
     VkCommandBuffer m_computeCmdBuffer{ VK_NULL_HANDLE };
     VkFence m_computeFence{ VK_NULL_HANDLE };
 
+#if defined(_WIN32)
+    HANDLE m_iocpHandle{ INVALID_HANDLE_VALUE };
+#endif
+
     /**
      * @brief Constructs and initializes the asynchronous storage queue and staging pools.
      * @param[in] desc Queue creation descriptor containing Vulkan device and queue handles.
@@ -440,6 +577,13 @@ public:
         : m_desc(desc)
     {
         ProbeCapabilities();
+
+#if defined(_WIN32)
+        if (m_desc.EnableIocpBatching)
+        {
+            m_iocpHandle = CreateIoCompletionPort(INVALID_HANDLE_VALUE, nullptr, 0, 1);
+        }
+#endif
 
         VkPhysicalDeviceProperties devProps{};
         vkGetPhysicalDeviceProperties(m_desc.PhysicalDevice, &devProps);
@@ -509,7 +653,20 @@ public:
             if (vkAllocateMemory(m_desc.Device, &allocInfo, nullptr, &m_stagingPoolMemory) == VK_SUCCESS)
             {
                 vkBindBufferMemory(m_desc.Device, m_stagingPoolBuffer, m_stagingPoolMemory, 0);
-                vkMapMemory(m_desc.Device, m_stagingPoolMemory, 0, m_stagingPoolSize, 0, &m_stagingPoolMapped);
+                if (vkMapMemory(m_desc.Device, m_stagingPoolMemory, 0, m_stagingPoolSize, 0, &m_stagingPoolMapped) == VK_SUCCESS)
+                {
+#if defined(_WIN32)
+                    if (m_desc.EnableMemoryLocking && m_stagingPoolMapped)
+                    {
+                        VirtualLock(m_stagingPoolMapped, m_stagingPoolSize);
+                    }
+#elif defined(__linux__)
+                    if (m_desc.EnableMemoryLocking && m_stagingPoolMapped)
+                    {
+                        mlock(m_stagingPoolMapped, m_stagingPoolSize);
+                    }
+#endif
+                }
             }
         }
 
@@ -540,9 +697,28 @@ public:
 
         if (m_stagingPoolMapped)
         {
+#if defined(_WIN32)
+            if (m_desc.EnableMemoryLocking)
+            {
+                VirtualUnlock(m_stagingPoolMapped, m_stagingPoolSize);
+            }
+#elif defined(__linux__)
+            if (m_desc.EnableMemoryLocking)
+            {
+                munlock(m_stagingPoolMapped, m_stagingPoolSize);
+            }
+#endif
             vkUnmapMemory(m_desc.Device, m_stagingPoolMemory);
             m_stagingPoolMapped = nullptr;
         }
+
+#if defined(_WIN32)
+        if (m_iocpHandle != INVALID_HANDLE_VALUE)
+        {
+            CloseHandle(m_iocpHandle);
+            m_iocpHandle = INVALID_HANDLE_VALUE;
+        }
+#endif
 
         if (m_stagingPoolBuffer != VK_NULL_HANDLE)
         {
@@ -768,6 +944,36 @@ private:
         }
 
         m_caps.HasComputeDecompression = (m_desc.ComputeQueue != VK_NULL_HANDLE);
+
+        // Hardware Sparse Virtual Texturing probe
+        VkPhysicalDeviceFeatures devFeatures{};
+        vkGetPhysicalDeviceFeatures(m_desc.PhysicalDevice, &devFeatures);
+        m_caps.HasSparseResidency = (devFeatures.sparseBinding && devFeatures.sparseResidencyImage2D);
+
+        // Dedicated Hardware DMA Transfer Queue Family (SDMA copy engine)
+        uint32_t qfCount = 0;
+        vkGetPhysicalDeviceQueueFamilyProperties(m_desc.PhysicalDevice, &qfCount, nullptr);
+        if (qfCount > 0)
+        {
+            std::vector<VkQueueFamilyProperties> qfProps(qfCount);
+            vkGetPhysicalDeviceQueueFamilyProperties(m_desc.PhysicalDevice, &qfCount, qfProps.data());
+            if (m_desc.TransferQueueFamilyIndex < qfCount)
+            {
+                auto flags = qfProps[m_desc.TransferQueueFamilyIndex].queueFlags;
+                m_caps.HasDedicatedTransferQueue = ((flags & VK_QUEUE_TRANSFER_BIT) && !(flags & VK_QUEUE_GRAPHICS_BIT));
+            }
+        }
+
+        // OS Ring-3 Hardware & Scheduler Capabilities
+#if defined(_WIN32)
+        m_caps.HasLargePages = (GetLargePageMinimum() > 0);
+        m_caps.HasMmcssScheduling = true;
+        m_caps.HasIocpBatching = true;
+#elif defined(__linux__)
+        m_caps.HasLargePages = true;
+        m_caps.HasMmcssScheduling = false;
+        m_caps.HasIocpBatching = true;
+#endif
     }
 
     /**
@@ -848,6 +1054,52 @@ private:
      */
     void WorkerLoop()
     {
+#if defined(_WIN32)
+        // 1. Thread Scheduling & Priority Elevation
+        if (m_desc.QueuePriority == Priority::Realtime)
+            SetThreadPriority(GetCurrentThread(), THREAD_PRIORITY_TIME_CRITICAL);
+        else if (m_desc.QueuePriority == Priority::High)
+            SetThreadPriority(GetCurrentThread(), THREAD_PRIORITY_HIGHEST);
+        else if (m_desc.QueuePriority == Priority::Normal)
+            SetThreadPriority(GetCurrentThread(), THREAD_PRIORITY_ABOVE_NORMAL);
+
+        // 2. Windows MMCSS (Multimedia Class Scheduler Service)
+        HMODULE hAvrt = nullptr;
+        HANDLE hMmcss = nullptr;
+        if (m_desc.EnableMmcss)
+        {
+            hAvrt = LoadLibraryA("Avrt.dll");
+            if (hAvrt)
+            {
+                typedef HANDLE (WINAPI *PFN_AvSetMmThreadCharacteristicsW)(LPCWSTR, LPDWORD);
+                auto pfnAvSet = reinterpret_cast<PFN_AvSetMmThreadCharacteristicsW>(GetProcAddress(hAvrt, "AvSetMmThreadCharacteristicsW"));
+                if (pfnAvSet)
+                {
+                    DWORD taskIndex = 0;
+                    hMmcss = pfnAvSet(L"Games", &taskIndex);
+                }
+            }
+        }
+
+        // 3. CPU Core Affinity Pinning (e.g. pin to dedicated P-Core)
+        if (m_desc.ThreadAffinityMask != 0)
+        {
+            SetThreadAffinityMask(GetCurrentThread(), static_cast<DWORD_PTR>(m_desc.ThreadAffinityMask));
+        }
+#elif defined(__linux__)
+        if (m_desc.ThreadAffinityMask != 0)
+        {
+            cpu_set_t cpuset;
+            CPU_ZERO(&cpuset);
+            for (int c = 0; c < 64; ++c)
+            {
+                if (m_desc.ThreadAffinityMask & (1ULL << c))
+                    CPU_SET(c, &cpuset);
+            }
+            pthread_setaffinity_np(pthread_self(), sizeof(cpu_set_t), &cpuset);
+        }
+#endif
+
         while (m_running)
         {
             QueuedTask task{};
@@ -867,6 +1119,20 @@ private:
             ProcessTask(task);
             m_cv.notify_all();
         }
+
+#if defined(_WIN32)
+        if (hMmcss && hAvrt)
+        {
+            typedef BOOL (WINAPI *PFN_AvRevertMmThreadCharacteristics)(HANDLE);
+            auto pfnAvRevert = reinterpret_cast<PFN_AvRevertMmThreadCharacteristics>(GetProcAddress(hAvrt, "AvRevertMmThreadCharacteristics"));
+            if (pfnAvRevert)
+                pfnAvRevert(hMmcss);
+        }
+        if (hAvrt)
+        {
+            FreeLibrary(hAvrt);
+        }
+#endif
     }
 
     /**
@@ -1084,8 +1350,8 @@ private:
                 // Copy buffer to image
                 VkBufferImageCopy region{};
                 region.bufferOffset = stagingSrcOffset;
-                region.bufferRowLength = 0;
-                region.bufferImageHeight = 0;
+                region.bufferRowLength = task.req.DestinationImage.BufferRowLength;
+                region.bufferImageHeight = task.req.DestinationImage.BufferImageHeight;
                 region.imageSubresource = task.req.DestinationImage.Subresource;
                 region.imageOffset = task.req.DestinationImage.ImageOffset;
                 region.imageExtent = task.req.DestinationImage.ImageExtent;
@@ -1253,6 +1519,9 @@ public:
             file->RequestBypassIO();
         }
 
+        // Enable asynchronous fast-path completion bypass (eliminates completion port overhead on sync completion)
+        SetFileCompletionNotificationModes(hFile, FILE_SKIP_COMPLETION_PORT_ON_SUCCESS);
+
         *ppFile = file;
         return VK_SUCCESS;
 #else
@@ -1395,6 +1664,11 @@ VOLCANSTORAGE_API VkResult volcanCreateQueue(
     desc.ComputeQueue = pCreateInfo->computeQueue;
     desc.ComputeQueueFamilyIndex = pCreateInfo->computeQueueFamilyIndex;
     desc.StagingBufferSize = pCreateInfo->stagingBufferSize;
+    desc.ThreadAffinityMask = pCreateInfo->threadAffinityMask;
+    desc.EnableMmcss = (pCreateInfo->enableMmcss != VK_FALSE);
+    desc.EnableLargePages = (pCreateInfo->enableLargePages != VK_FALSE);
+    desc.EnableMemoryLocking = (pCreateInfo->enableMemoryLocking != VK_FALSE);
+    desc.EnableIocpBatching = (pCreateInfo->enableIocpBatching != VK_FALSE);
 
     volcanstorage::IVolcanStorageQueue* pInternalQueue = nullptr;
     VkResult res = pFactoryImpl->CreateQueue(desc, &pInternalQueue);
@@ -1432,6 +1706,11 @@ VOLCANSTORAGE_API VkResult volcanGetQueueCapabilities(
     pCapabilities->hasResizableBAR = caps.HasResizableBAR ? VK_TRUE : VK_FALSE;
     pCapabilities->supportsDirectGpuZeroCopy = caps.SupportsDirectGpuZeroCopy ? VK_TRUE : VK_FALSE;
     pCapabilities->hasComputeDecompression = caps.HasComputeDecompression ? VK_TRUE : VK_FALSE;
+    pCapabilities->hasSparseResidency = caps.HasSparseResidency ? VK_TRUE : VK_FALSE;
+    pCapabilities->hasDedicatedTransferQueue = caps.HasDedicatedTransferQueue ? VK_TRUE : VK_FALSE;
+    pCapabilities->hasLargePages = caps.HasLargePages ? VK_TRUE : VK_FALSE;
+    pCapabilities->hasMmcssScheduling = caps.HasMmcssScheduling ? VK_TRUE : VK_FALSE;
+    pCapabilities->hasIocpBatching = caps.HasIocpBatching ? VK_TRUE : VK_FALSE;
     return VK_SUCCESS;
 }
 
@@ -1456,6 +1735,9 @@ VOLCANSTORAGE_API VkResult volcanEnqueueRequest(
     req.DestinationImage.ImageExtent = pRequest->destinationImage.imageExtent;
     req.DestinationImage.Subresource = pRequest->destinationImage.subresource;
     req.DestinationImage.FinalLayout = pRequest->destinationImage.finalLayout;
+    req.DestinationImage.IsSparseTile = (pRequest->destinationImage.isSparseTile != VK_FALSE);
+    req.DestinationImage.BufferRowLength = pRequest->destinationImage.bufferRowLength;
+    req.DestinationImage.BufferImageHeight = pRequest->destinationImage.bufferImageHeight;
     req.DestinationMemory = pRequest->destinationMemory;
     req.DestinationSize = pRequest->destinationSize;
     req.Compression = static_cast<volcanstorage::CompressionFormat>(pRequest->compression);

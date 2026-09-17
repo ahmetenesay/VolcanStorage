@@ -218,6 +218,21 @@ typedef struct VolcanStorageCapabilities {
 
     /** @brief True if the hardware compute queue supports GDeflate compute decompression. */
     VkBool32 hasComputeDecompression;
+
+    /** @brief True if the hardware supports Vulkan sparse binding / residency (virtual texturing). */
+    VkBool32 hasSparseResidency;
+
+    /** @brief True if dedicated DMA copy queue family (SDMA engine) is active for transfers. */
+    VkBool32 hasDedicatedTransferQueue;
+
+    /** @brief True if OS Large/Huge Pages (2MB/1GB TLB pages) are active for staging allocations. */
+    VkBool32 hasLargePages;
+
+    /** @brief True if Windows MMCSS (Multimedia Class Scheduler Service) is active on worker threads. */
+    VkBool32 hasMmcssScheduling;
+
+    /** @brief True if Asynchronous I/O Completion Port batching (IOCP / io_uring) is active. */
+    VkBool32 hasIocpBatching;
 } VolcanStorageCapabilities;
 
 /**
@@ -239,6 +254,15 @@ typedef struct VolcanImageDestinationInfo {
 
     /** @brief Desired layout to transition the image into after the transfer completes. */
     VkImageLayout finalLayout;
+
+    /** @brief True if streaming into a Sparse Virtual Texture tile/subresource. */
+    VkBool32 isSparseTile;
+
+    /** @brief Specified buffer row length in texels for sparse tile staging (0 = tightly packed extent). */
+    uint32_t bufferRowLength;
+
+    /** @brief Specified buffer image height in texels for sparse tile staging (0 = tightly packed extent). */
+    uint32_t bufferImageHeight;
 } VolcanImageDestinationInfo;
 
 /**
@@ -317,6 +341,24 @@ typedef struct VolcanQueueCreateInfo {
      * Default: 64 MB (67,108,864 bytes).
      */
     uint32_t stagingBufferSize;
+
+    /**
+     * @brief Optional 64-bit CPU core affinity bitmask (e.g. pin to P-Cores).
+     * Set to 0 for automatic OS default core scheduling.
+     */
+    uint64_t threadAffinityMask;
+
+    /** @brief Enable Windows MMCSS real-time audio/game thread scheduling priority. */
+    VkBool32 enableMmcss;
+
+    /** @brief Attempt 2MB Large / Huge Page staging allocations to minimize TLB cache misses. */
+    VkBool32 enableLargePages;
+
+    /** @brief Lock staging buffers into physical RAM (VirtualLock/mlock) to prevent OS paging stalls. */
+    VkBool32 enableMemoryLocking;
+
+    /** @brief Enable IOCP / io_uring batch completion dequeuing for minimum syscall overhead. */
+    VkBool32 enableIocpBatching;
 } VolcanQueueCreateInfo;
 
 /**
@@ -721,6 +763,11 @@ struct VolcanDeviceCapabilities
     bool HasResizableBAR{ false };
     bool SupportsDirectGpuZeroCopy{ false };
     bool HasComputeDecompression{ false };
+    bool HasSparseResidency{ false };
+    bool HasDedicatedTransferQueue{ false };
+    bool HasLargePages{ false };
+    bool HasMmcssScheduling{ false };
+    bool HasIocpBatching{ false };
 };
 
 /** @brief Target image destination descriptor. */
@@ -731,6 +778,9 @@ struct ImageDestinationInfo
     VkExtent3D ImageExtent{ 0, 0, 1 };
     VkImageSubresourceLayers Subresource{ VK_IMAGE_ASPECT_COLOR_BIT, 0, 0, 1 };
     VkImageLayout FinalLayout{ VK_IMAGE_LAYOUT_SHADER_READ_ONLY_OPTIMAL };
+    bool IsSparseTile{ false };
+    uint32_t BufferRowLength{ 0 };
+    uint32_t BufferImageHeight{ 0 };
 };
 
 /**
@@ -757,6 +807,11 @@ struct QueueDesc
     VkQueue ComputeQueue{ VK_NULL_HANDLE };
     uint32_t ComputeQueueFamilyIndex{ 0 };
     uint32_t StagingBufferSize{ 64 * 1024 * 1024 };
+    uint64_t ThreadAffinityMask{ 0 };
+    bool EnableMmcss{ true };
+    bool EnableLargePages{ true };
+    bool EnableMemoryLocking{ true };
+    bool EnableIocpBatching{ true };
 };
 
 /** @brief Storage job request descriptor. */

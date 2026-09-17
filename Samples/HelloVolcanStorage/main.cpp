@@ -360,6 +360,11 @@ int main(int argc, char* argv[])
               << (caps.ActiveTier == FeatureTier::Tier3_Modern ? " (Tier 3 Modern Vulkan 1.4/1.3)" : " (Tier 2/1)") << std::endl;
     std::cout << "[VolcanStorage] Resizable BAR / Direct VRAM Access: " << (caps.HasResizableBAR ? "ENABLED (Zero-Copy DMA)" : (caps.IsUnifiedMemoryArchitecture ? "ENABLED (UMA Zero-Copy)" : "HOST-STAGING")) << std::endl;
     std::cout << "[VolcanStorage] 64-bit Timeline Semaphores: " << (caps.HasTimelineSemaphores ? "SUPPORTED" : "FALLBACK") << std::endl;
+    std::cout << "[VolcanStorage] MMCSS Real-Time Thread Scheduling: " << (caps.HasMmcssScheduling ? "ACTIVE (Windows MMCSS)" : "STANDARD") << std::endl;
+    std::cout << "[VolcanStorage] OS Virtual Memory & Physical Lock: " << (caps.HasLargePages ? "ACTIVE (VirtualLock Working Set)" : "STANDARD") << std::endl;
+    std::cout << "[VolcanStorage] Dedicated DMA Copy Engine (SDMA): " << (caps.HasDedicatedTransferQueue ? "DEDICATED" : "SHARED QUEUE") << std::endl;
+    std::cout << "[VolcanStorage] Vulkan Sparse Virtual Texturing: " << (caps.HasSparseResidency ? "SUPPORTED" : "UNSUPPORTED") << std::endl;
+    std::cout << "[VolcanStorage] Asynchronous IOCP Batching: " << (caps.HasIocpBatching ? "ACTIVE (Kernel Syscall Amortization)" : "STANDARD") << std::endl;
 
     // 9. Create 64-bit Timeline Semaphore
     VkSemaphoreTypeCreateInfo timelineInfo{ VK_STRUCTURE_TYPE_SEMAPHORE_TYPE_CREATE_INFO };
