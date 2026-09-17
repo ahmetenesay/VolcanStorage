@@ -703,3 +703,227 @@ extern "C" VOLCANSTORAGE_API VkResult VolcanStorageGetFactory(IVolcanStorageFact
 }
 
 } // namespace volcanstorage
+
+// -----------------------------------------------------------------------------
+// Pure Vulkan C API Implementations (Free Functions)
+// -----------------------------------------------------------------------------
+extern "C" {
+
+VOLCANSTORAGE_API VkResult volcanCreateFactory(
+    const VolcanFactoryCreateInfo* pCreateInfo,
+    VolcanStorageFactory* pFactory)
+{
+    (void)pCreateInfo;
+    if (!pFactory)
+        return VK_ERROR_INITIALIZATION_FAILED;
+
+    static volcanstorage::VolcanStorageFactoryImpl s_factory;
+    *pFactory = reinterpret_cast<VolcanStorageFactory>(&s_factory);
+    return VK_SUCCESS;
+}
+
+VOLCANSTORAGE_API void volcanDestroyFactory(
+    VolcanStorageFactory factory)
+{
+    (void)factory;
+}
+
+VOLCANSTORAGE_API VkResult volcanOpenFile(
+    VolcanStorageFactory factory,
+    const char* pUtf8Path,
+    VolcanStorageFile* pFile)
+{
+    if (!factory || !pFile || !pUtf8Path)
+        return VK_ERROR_INITIALIZATION_FAILED;
+
+    auto* pFactoryImpl = reinterpret_cast<volcanstorage::IVolcanStorageFactory*>(factory);
+    volcanstorage::IVolcanStorageFile* pInternalFile = nullptr;
+    VkResult res = pFactoryImpl->OpenFile(pUtf8Path, &pInternalFile);
+    if (res == VK_SUCCESS)
+    {
+        *pFile = reinterpret_cast<VolcanStorageFile>(pInternalFile);
+    }
+    return res;
+}
+
+VOLCANSTORAGE_API VkResult volcanOpenFileW(
+    VolcanStorageFactory factory,
+    const wchar_t* pWidePath,
+    VolcanStorageFile* pFile)
+{
+    if (!factory || !pFile || !pWidePath)
+        return VK_ERROR_INITIALIZATION_FAILED;
+
+    auto* pFactoryImpl = reinterpret_cast<volcanstorage::IVolcanStorageFactory*>(factory);
+    volcanstorage::IVolcanStorageFile* pInternalFile = nullptr;
+    VkResult res = pFactoryImpl->OpenFileW(pWidePath, &pInternalFile);
+    if (res == VK_SUCCESS)
+    {
+        *pFile = reinterpret_cast<VolcanStorageFile>(pInternalFile);
+    }
+    return res;
+}
+
+VOLCANSTORAGE_API void volcanCloseFile(
+    VolcanStorageFile file)
+{
+    if (file)
+    {
+        auto* pInternalFile = reinterpret_cast<volcanstorage::IVolcanStorageFile*>(file);
+        pInternalFile->Close();
+        delete pInternalFile;
+    }
+}
+
+VOLCANSTORAGE_API VkResult volcanGetFileInformation(
+    VolcanStorageFile file,
+    VolcanFileInformation* pInformation)
+{
+    if (!file || !pInformation)
+        return VK_ERROR_INITIALIZATION_FAILED;
+
+    auto* pInternalFile = reinterpret_cast<volcanstorage::IVolcanStorageFile*>(file);
+    auto info = pInternalFile->GetInformation();
+    pInformation->fileSize = info.FileSize;
+    pInformation->sectorSize = info.SectorSize;
+    return VK_SUCCESS;
+}
+
+VOLCANSTORAGE_API VkResult volcanCreateQueue(
+    VolcanStorageFactory factory,
+    const VolcanQueueCreateInfo* pCreateInfo,
+    VolcanStorageQueue* pQueue)
+{
+    if (!factory || !pCreateInfo || !pQueue)
+        return VK_ERROR_INITIALIZATION_FAILED;
+
+    auto* pFactoryImpl = reinterpret_cast<volcanstorage::IVolcanStorageFactory*>(factory);
+    volcanstorage::QueueDesc desc{};
+    desc.Capacity = pCreateInfo->capacity;
+    desc.QueuePriority = static_cast<volcanstorage::Priority>(pCreateInfo->queuePriority);
+    desc.Device = pCreateInfo->device;
+    desc.PhysicalDevice = pCreateInfo->physicalDevice;
+    desc.TransferQueue = pCreateInfo->transferQueue;
+    desc.TransferQueueFamilyIndex = pCreateInfo->transferQueueFamilyIndex;
+    desc.ComputeQueue = pCreateInfo->computeQueue;
+    desc.ComputeQueueFamilyIndex = pCreateInfo->computeQueueFamilyIndex;
+    desc.StagingBufferSize = pCreateInfo->stagingBufferSize;
+
+    volcanstorage::IVolcanStorageQueue* pInternalQueue = nullptr;
+    VkResult res = pFactoryImpl->CreateQueue(desc, &pInternalQueue);
+    if (res == VK_SUCCESS)
+    {
+        *pQueue = reinterpret_cast<VolcanStorageQueue>(pInternalQueue);
+    }
+    return res;
+}
+
+VOLCANSTORAGE_API void volcanDestroyQueue(
+    VolcanStorageQueue queue)
+{
+    if (queue)
+    {
+        auto* pInternalQueue = reinterpret_cast<volcanstorage::IVolcanStorageQueue*>(queue);
+        delete pInternalQueue;
+    }
+}
+
+VOLCANSTORAGE_API VkResult volcanGetQueueCapabilities(
+    VolcanStorageQueue queue,
+    VolcanStorageCapabilities* pCapabilities)
+{
+    if (!queue || !pCapabilities)
+        return VK_ERROR_INITIALIZATION_FAILED;
+
+    auto* pInternalQueue = reinterpret_cast<volcanstorage::IVolcanStorageQueue*>(queue);
+    auto caps = pInternalQueue->GetCapabilities();
+    pCapabilities->apiVersion = caps.ApiVersion;
+    pCapabilities->activeTier = static_cast<VolcanFeatureTier>(caps.ActiveTier);
+    pCapabilities->hasTimelineSemaphores = caps.HasTimelineSemaphores ? VK_TRUE : VK_FALSE;
+    pCapabilities->hasSynchronization2 = caps.HasSynchronization2 ? VK_TRUE : VK_FALSE;
+    pCapabilities->isUnifiedMemoryArchitecture = caps.IsUnifiedMemoryArchitecture ? VK_TRUE : VK_FALSE;
+    pCapabilities->hasResizableBAR = caps.HasResizableBAR ? VK_TRUE : VK_FALSE;
+    pCapabilities->supportsDirectGpuZeroCopy = caps.SupportsDirectGpuZeroCopy ? VK_TRUE : VK_FALSE;
+    pCapabilities->hasComputeDecompression = caps.HasComputeDecompression ? VK_TRUE : VK_FALSE;
+    return VK_SUCCESS;
+}
+
+VOLCANSTORAGE_API VkResult volcanEnqueueRequest(
+    VolcanStorageQueue queue,
+    const VolcanRequest* pRequest)
+{
+    if (!queue || !pRequest)
+        return VK_ERROR_INITIALIZATION_FAILED;
+
+    auto* pInternalQueue = reinterpret_cast<volcanstorage::IVolcanStorageQueue*>(queue);
+    
+    volcanstorage::Request req{};
+    req.DestType = static_cast<volcanstorage::DestinationType>(pRequest->destType);
+    req.SourceFile = reinterpret_cast<volcanstorage::IVolcanStorageFile*>(pRequest->sourceFile);
+    req.SourceOffset = pRequest->sourceOffset;
+    req.SourceSize = pRequest->sourceSize;
+    req.DestinationBuffer = pRequest->destinationBuffer;
+    req.DestinationBufferOffset = pRequest->destinationBufferOffset;
+    req.DestinationImage.Image = pRequest->destinationImage.image;
+    req.DestinationImage.ImageOffset = pRequest->destinationImage.imageOffset;
+    req.DestinationImage.ImageExtent = pRequest->destinationImage.imageExtent;
+    req.DestinationImage.Subresource = pRequest->destinationImage.subresource;
+    req.DestinationImage.FinalLayout = pRequest->destinationImage.finalLayout;
+    req.DestinationMemory = pRequest->destinationMemory;
+    req.DestinationSize = pRequest->destinationSize;
+    req.Compression = static_cast<volcanstorage::CompressionFormat>(pRequest->compression);
+
+    pInternalQueue->EnqueueRequest(req);
+    return VK_SUCCESS;
+}
+
+VOLCANSTORAGE_API VkResult volcanEnqueueSignal(
+    VolcanStorageQueue queue,
+    VkFence fence,
+    VkSemaphore binarySemaphore)
+{
+    if (!queue)
+        return VK_ERROR_INITIALIZATION_FAILED;
+
+    auto* pInternalQueue = reinterpret_cast<volcanstorage::IVolcanStorageQueue*>(queue);
+    pInternalQueue->EnqueueSignal(fence, binarySemaphore);
+    return VK_SUCCESS;
+}
+
+VOLCANSTORAGE_API VkResult volcanEnqueueSignalTimeline(
+    VolcanStorageQueue queue,
+    VkSemaphore timelineSemaphore,
+    uint64_t signalValue)
+{
+    if (!queue)
+        return VK_ERROR_INITIALIZATION_FAILED;
+
+    auto* pInternalQueue = reinterpret_cast<volcanstorage::IVolcanStorageQueue*>(queue);
+    pInternalQueue->EnqueueSignalTimeline(timelineSemaphore, signalValue);
+    return VK_SUCCESS;
+}
+
+VOLCANSTORAGE_API VkResult volcanSubmitQueue(
+    VolcanStorageQueue queue)
+{
+    if (!queue)
+        return VK_ERROR_INITIALIZATION_FAILED;
+
+    auto* pInternalQueue = reinterpret_cast<volcanstorage::IVolcanStorageQueue*>(queue);
+    pInternalQueue->Submit();
+    return VK_SUCCESS;
+}
+
+VOLCANSTORAGE_API VkResult volcanWaitQueueIdle(
+    VolcanStorageQueue queue)
+{
+    if (!queue)
+        return VK_ERROR_INITIALIZATION_FAILED;
+
+    auto* pInternalQueue = reinterpret_cast<volcanstorage::IVolcanStorageQueue*>(queue);
+    pInternalQueue->WaitIdle();
+    return VK_SUCCESS;
+}
+
+} // extern "C"
+
