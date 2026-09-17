@@ -29,7 +29,7 @@
  *    developers are strongly advised to always use Level 12 for production
  *    assets to minimize disk footprint and maximize PCIe/NVMe throughput.
  *
- * @author VolcanStorage Team & Ahmet Enes Ay
+ * @author Ahmet Enes(Chiretallyn)
  * @version 1.0.0
  * @date 2026
  */
