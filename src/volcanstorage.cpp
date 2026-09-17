@@ -87,7 +87,7 @@ namespace detail
 {
 
 /**
- * @brief High-performance memory stream copy utilizing AVX2 / AVX-512 Non-Temporal Stores.
+ * @brief High-performance memory stream copy utilizing AVX2 Non-Temporal Stores.
  *
  * Bypasses L1/L2/L3 CPU caches by streaming writes directly through the Write-Combining (WC)
  * buffer onto the PCIe bus into ReBAR VRAM, eliminating cache eviction stalls during
