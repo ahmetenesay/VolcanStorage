@@ -950,6 +950,16 @@ private:
         vkGetPhysicalDeviceFeatures(m_desc.PhysicalDevice, &devFeatures);
         m_caps.HasSparseResidency = (devFeatures.sparseBinding && devFeatures.sparseResidencyImage2D);
 
+        // Vulkan Hardware Protected Memory probe (Hardware DRM / Enclave Buffer Isolation)
+        if (props.apiVersion >= VK_API_VERSION_1_1)
+        {
+            VkPhysicalDeviceProtectedMemoryFeatures protFeatures{ VK_STRUCTURE_TYPE_PHYSICAL_DEVICE_PROTECTED_MEMORY_FEATURES };
+            VkPhysicalDeviceFeatures2 feat2{ VK_STRUCTURE_TYPE_PHYSICAL_DEVICE_FEATURES_2 };
+            feat2.pNext = &protFeatures;
+            vkGetPhysicalDeviceFeatures2(m_desc.PhysicalDevice, &feat2);
+            m_caps.HasProtectedMemory = (protFeatures.protectedMemory == VK_TRUE);
+        }
+
         // Dedicated Hardware DMA Transfer Queue Family (SDMA copy engine)
         uint32_t qfCount = 0;
         vkGetPhysicalDeviceQueueFamilyProperties(m_desc.PhysicalDevice, &qfCount, nullptr);
@@ -1400,9 +1410,27 @@ private:
         if (isDedicatedBuffer)
         {
             FlushInFlightTransfers();
+            if (m_desc.EnableStreamIsolation || task.req.IsProtected)
+            {
+#if defined(_WIN32)
+                SecureZeroMemory(mappedData, neededStagingSize);
+#else
+                std::memset(mappedData, 0, neededStagingSize);
+#endif
+            }
             vkUnmapMemory(m_desc.Device, dedicatedMemory);
             vkDestroyBuffer(m_desc.Device, dedicatedBuffer, nullptr);
             vkFreeMemory(m_desc.Device, dedicatedMemory, nullptr);
+        }
+        else if ((m_desc.EnableStreamIsolation || task.req.IsProtected) && mappedData != nullptr)
+        {
+            // Stream Isolation: Wait for hardware DMA transfer to complete, then scrub staging memory to leave zero trace
+            FlushInFlightTransfers();
+#if defined(_WIN32)
+            SecureZeroMemory(mappedData, alignedStagingSize);
+#else
+            std::memset(mappedData, 0, alignedStagingSize);
+#endif
         }
     }
 };
@@ -1669,6 +1697,7 @@ VOLCANSTORAGE_API VkResult volcanCreateQueue(
     desc.EnableLargePages = (pCreateInfo->enableLargePages != VK_FALSE);
     desc.EnableMemoryLocking = (pCreateInfo->enableMemoryLocking != VK_FALSE);
     desc.EnableIocpBatching = (pCreateInfo->enableIocpBatching != VK_FALSE);
+    desc.EnableStreamIsolation = (pCreateInfo->enableStreamIsolation != VK_FALSE);
 
     volcanstorage::IVolcanStorageQueue* pInternalQueue = nullptr;
     VkResult res = pFactoryImpl->CreateQueue(desc, &pInternalQueue);
@@ -1711,6 +1740,7 @@ VOLCANSTORAGE_API VkResult volcanGetQueueCapabilities(
     pCapabilities->hasLargePages = caps.HasLargePages ? VK_TRUE : VK_FALSE;
     pCapabilities->hasMmcssScheduling = caps.HasMmcssScheduling ? VK_TRUE : VK_FALSE;
     pCapabilities->hasIocpBatching = caps.HasIocpBatching ? VK_TRUE : VK_FALSE;
+    pCapabilities->hasProtectedMemory = caps.HasProtectedMemory ? VK_TRUE : VK_FALSE;
     return VK_SUCCESS;
 }
 
@@ -1741,6 +1771,7 @@ VOLCANSTORAGE_API VkResult volcanEnqueueRequest(
     req.DestinationMemory = pRequest->destinationMemory;
     req.DestinationSize = pRequest->destinationSize;
     req.Compression = static_cast<volcanstorage::CompressionFormat>(pRequest->compression);
+    req.IsProtected = (pRequest->isProtected != VK_FALSE);
 
     pInternalQueue->EnqueueRequest(req);
     return VK_SUCCESS;

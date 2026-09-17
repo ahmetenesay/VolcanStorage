@@ -365,6 +365,7 @@ int main(int argc, char* argv[])
     std::cout << "[VolcanStorage] Dedicated DMA Copy Engine (SDMA): " << (caps.HasDedicatedTransferQueue ? "DEDICATED" : "SHARED QUEUE") << std::endl;
     std::cout << "[VolcanStorage] Vulkan Sparse Virtual Texturing: " << (caps.HasSparseResidency ? "SUPPORTED" : "UNSUPPORTED") << std::endl;
     std::cout << "[VolcanStorage] Asynchronous IOCP Batching: " << (caps.HasIocpBatching ? "ACTIVE (Kernel Syscall Amortization)" : "STANDARD") << std::endl;
+    std::cout << "[VolcanStorage] Hardware Protected Memory Isolation: " << (caps.HasProtectedMemory ? "SUPPORTED (VK_MEMORY_PROPERTY_PROTECTED_BIT)" : "UNSUPPORTED") << std::endl;
 
     // 9. Create 64-bit Timeline Semaphore
     VkSemaphoreTypeCreateInfo timelineInfo{ VK_STRUCTURE_TYPE_SEMAPHORE_TYPE_CREATE_INFO };

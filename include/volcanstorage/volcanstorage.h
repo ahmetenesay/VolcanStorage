@@ -233,6 +233,9 @@ typedef struct VolcanStorageCapabilities {
 
     /** @brief True if Asynchronous I/O Completion Port batching (IOCP / io_uring) is active. */
     VkBool32 hasIocpBatching;
+
+    /** @brief True if the physical GPU hardware supports Vulkan Protected Memory isolation. */
+    VkBool32 hasProtectedMemory;
 } VolcanStorageCapabilities;
 
 /**
@@ -305,6 +308,9 @@ typedef struct VolcanRequest {
 
     /** @brief Compression format used by the source asset payload. */
     VolcanCompressionFormat compression;
+
+    /** @brief True to stream into hardware-isolated Protected Memory (VK_MEMORY_PROPERTY_PROTECTED_BIT). */
+    VkBool32 isProtected;
 } VolcanRequest;
 
 /**
@@ -359,6 +365,9 @@ typedef struct VolcanQueueCreateInfo {
 
     /** @brief Enable IOCP / io_uring batch completion dequeuing for minimum syscall overhead. */
     VkBool32 enableIocpBatching;
+
+    /** @brief Enable stream isolation and memory zeroing (SecureZeroMemory, Protected Memory). */
+    VkBool32 enableStreamIsolation;
 } VolcanQueueCreateInfo;
 
 /**
@@ -768,6 +777,7 @@ struct VolcanDeviceCapabilities
     bool HasLargePages{ false };
     bool HasMmcssScheduling{ false };
     bool HasIocpBatching{ false };
+    bool HasProtectedMemory{ false };
 };
 
 /** @brief Target image destination descriptor. */
@@ -812,6 +822,7 @@ struct QueueDesc
     bool EnableLargePages{ true };
     bool EnableMemoryLocking{ true };
     bool EnableIocpBatching{ true };
+    bool EnableStreamIsolation{ true };
 };
 
 /** @brief Storage job request descriptor. */
@@ -827,6 +838,7 @@ struct Request
     void* DestinationMemory{ nullptr };
     uint32_t DestinationSize{ 0 };
     CompressionFormat Compression{ CompressionFormat::None };
+    bool IsProtected{ false };
 };
 
 /**
