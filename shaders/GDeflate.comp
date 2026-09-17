@@ -1,13 +1,17 @@
 #version 450
 // SPDX-License-Identifier: Apache-2.0
-// VolcanStorage GDeflate Compute Shader (GLSL #version 450)
+// SPDX-FileCopyrightText: Copyright (c) 2020, 2021, 2022 NVIDIA CORPORATION & AFFILIATES. All rights reserved.
+// SPDX-FileCopyrightText: Copyright (c) Microsoft Corporation. All rights reserved.
+// Ported to pure Vulkan GLSL Compute Shader for VolcanStorage
+
+#extension GL_EXT_shader_explicit_arithmetic_types_int64 : require
 
 #define NUM_BITSTREAMS 32
 #define NUM_THREADS NUM_BITSTREAMS
 
 layout(local_size_x = NUM_THREADS, local_size_y = 1, local_size_z = 1) in;
 
-// Raw input, control, output, and scratch buffers
+// Raw input, control, output, and scratch buffers (Vulkan SSBOs)
 layout(std430, set = 0, binding = 0) readonly buffer InputSSBO {
     uint data[];
 } inputBuffer;
@@ -28,7 +32,7 @@ layout(std430, set = 0, binding = 3) buffer ScratchSSBO {
 
 uint ControlStreamOffset(uint streamIndex)
 {
-    return 4 + streamIndex * 8;
+    return 4u + streamIndex * 8u;
 }
 
 uint ControlStreamInOffset(uint streamIndex)
@@ -38,39 +42,695 @@ uint ControlStreamInOffset(uint streamIndex)
 
 uint ControlStreamOutOffset(uint streamIndex)
 {
-    return ControlStreamInOffset(streamIndex) + 4;
+    return ControlStreamInOffset(streamIndex) + 4u;
 }
 
 uint ScratchStreamTileIndexOffset(uint streamIndex)
 {
-    return streamIndex * 4;
+    return streamIndex * 4u;
 }
 
+uint mask(uint n)
+{
+    return (n >= 32u) ? 0xFFFFFFFFu : ((1u << n) - 1u);
+}
+
+uint ltMask(uint tid)
+{
+    return mask(tid);
+}
+
+uint extract(uint d, uint pos, uint n, uint base_val)
+{
+    return ((d >> pos) & mask(n)) + base_val;
+}
+
+// -----------------------------------------------------------------------------
+// Shared Memory Allocation & Warp / Wave Emulation for Arbitrary GPU SIMD
+// -----------------------------------------------------------------------------
+shared uint g_tmp[NUM_THREADS];
+shared uint g_tmp1[NUM_THREADS];
+shared uint g_tmp2[NUM_THREADS];
+shared uint g_tmp3[NUM_THREADS];
+
+void syncGroup()
+{
+    barrier();
+    memoryBarrierShared();
+}
+
+uint vote(bool p, uint tid)
+{
+    g_tmp1[tid] = p ? (1u << tid) : 0u;
+    syncGroup();
+    for (uint i = NUM_THREADS / 2u; i > 0u; i >>= 1u)
+    {
+        if (tid < i)
+            g_tmp1[tid] |= g_tmp1[tid + i];
+        syncGroup();
+    }
+    uint ballot = g_tmp1[0];
+    syncGroup();
+    return ballot;
+}
+
+uint shuffle_val(uint value, uint idx, uint tid)
+{
+    g_tmp1[tid] = value;
+    syncGroup();
+    uint res = g_tmp1[idx];
+    syncGroup();
+    return res;
+}
+
+uint broadcast_val(uint value, uint idx, uint tid)
+{
+    syncGroup();
+    if (tid == idx)
+        g_tmp1[0] = value;
+    syncGroup();
+    return g_tmp1[0];
+}
+
+bool allThreads(bool p, uint tid)
+{
+    return vote(p, tid) == ((1u << NUM_THREADS) - 1u);
+}
+
+uint scan(uint value, uint tid)
+{
+    uint sum = value;
+    for (uint i = 1u; i < NUM_THREADS; i *= 2u)
+    {
+        sum += (tid >= i) ? shuffle_val(sum, tid - i, tid) : 0u;
+    }
+    return sum - value;
+}
+
+uint scan16(uint value, uint tid)
+{
+    for (uint i = 1u; i < NUM_THREADS / 2u; i *= 2u)
+    {
+        value += ((tid & 15u) >= i) ? shuffle_val(value, tid - i, tid) : 0u;
+    }
+    return value;
+}
+
+uint match_mask(uint value, uint tid)
+{
+    uint m = 0u;
+    g_tmp1[tid] = value;
+    syncGroup();
+    for (uint i = 0u; i < NUM_THREADS; i++)
+    {
+        syncGroup();
+        m |= (g_tmp1[i] == value) ? (1u << i) : 0u;
+    }
+    syncGroup();
+    return m;
+}
+
+uint ReadOutputByte(uint offset)
+{
+    uint offsetMod4 = offset & 3u;
+    uint base_idx = (offset - offsetMod4) >> 2u;
+    uint shift = offsetMod4 << 3u;
+    return (outputBuffer.data[base_idx] >> shift) & 0xFFu;
+}
+
+void StoreByte(uint offset, uint dataVal)
+{
+    uint offsetMod4 = offset & 3u;
+    uint base_idx = (offset - offsetMod4) >> 2u;
+    uint shift = offsetMod4 << 3u;
+    atomicOr(outputBuffer.data[base_idx], (dataVal & 0xFFu) << shift);
+}
+
+// -----------------------------------------------------------------------------
+// BitReader
+// -----------------------------------------------------------------------------
+struct BitReader
+{
+    uint base_offset;
+    uint cnt;
+    uint64_t buf;
+};
+
+const uint kBitReaderWidth = NUM_BITSTREAMS;
+
+void BitReader_Init(inout BitReader br, uint byteOffset, uint tid)
+{
+    br.cnt = kBitReaderWidth;
+    br.buf = uint64_t(inputBuffer.data[(byteOffset + tid * 4u) >> 2u]);
+    br.base_offset = byteOffset + kBitReaderWidth * 4u;
+}
+
+void BitReader_Refill(inout BitReader br, bool p, uint tid)
+{
+    p = p && (br.cnt < kBitReaderWidth);
+    uint ballot = vote(p, tid);
+    uint offset = uint(bitCount(ballot & ltMask(tid))) * 4u;
+    if (p)
+    {
+        br.buf |= uint64_t(inputBuffer.data[(br.base_offset + offset) >> 2u]) << br.cnt;
+        br.cnt += kBitReaderWidth;
+    }
+    br.base_offset += uint(bitCount(ballot)) * 4u;
+}
+
+void BitReader_Eat(inout BitReader br, uint n, uint tid, bool p)
+{
+    if (p)
+    {
+        br.buf >>= n;
+        br.cnt -= n;
+    }
+    BitReader_Refill(br, p, tid);
+}
+
+uint BitReader_PeekN(BitReader br, uint n)
+{
+    return uint(br.buf) & mask(n);
+}
+
+uint BitReader_PeekAll(BitReader br)
+{
+    return uint(br.buf);
+}
+
+uint BitReader_Read(inout BitReader br, uint n, uint tid, bool p)
+{
+    uint bits = p ? (uint(br.buf) & mask(n)) : 0u;
+    BitReader_Eat(br, n, tid, p);
+    return bits;
+}
+
+// -----------------------------------------------------------------------------
+// Scratch Storage & Code Lengths Buffer
+// -----------------------------------------------------------------------------
+shared uint g_buf_data[64];
+
+void g_buf_clear(uint tid)
+{
+    g_buf_data[tid] = 0u;
+    g_buf_data[tid + NUM_THREADS] = 0u;
+}
+
+uint g_buf_get4b(uint i)
+{
+    return (g_buf_data[i / 8u] >> (4u * (i % 8u))) & 15u;
+}
+
+void set4b(uint nibbles, uint n, uint i)
+{
+    nibbles |= (nibbles << 4u);
+    nibbles |= (nibbles << 8u);
+    nibbles |= (nibbles << 16u);
+    nibbles &= ~uint(int(0xF0000000) >> (28u - n * 4u));
+
+    uint base_idx = i / 8u;
+    uint shift = i % 8u;
+
+    atomicOr(g_buf_data[base_idx], nibbles << (shift * 4u));
+    if (shift + n > 8u)
+    {
+        atomicOr(g_buf_data[base_idx + 1u], nibbles >> ((8u - shift) * 4u));
+    }
+}
+
+// -----------------------------------------------------------------------------
+// Symbol Table
+// -----------------------------------------------------------------------------
+const uint kMaxSymbols = 288u + 32u;
+const uint kDistanceCodesBase = 288u;
+shared uint g_lut_symbols[kMaxSymbols];
+
+uint SymbolTable_Scatter(uint sym, uint len, uint offset, uint tid)
+{
+    uint mask_val = match_mask(len, tid);
+    if (len != 0u)
+    {
+        g_lut_symbols[offset + uint(bitCount(mask_val & ltMask(tid)))] = sym;
+    }
+    return mask_val;
+}
+
+void SymbolTable_Init(uint hlit, uint offsets, uint tid)
+{
+    if (tid != 15u && tid != 31u)
+    {
+        g_tmp[tid + 1u] = offsets;
+    }
+    syncGroup();
+
+    for (uint i = 0u; i < 256u / NUM_THREADS; i++)
+    {
+        uint sym = i * NUM_THREADS + tid;
+        uint len = g_buf_get4b(sym);
+        uint match_val = SymbolTable_Scatter(sym, len, g_tmp[len], tid);
+        if (tid == uint(findLSB(match_val)))
+        {
+            g_tmp[len] += uint(bitCount(match_val));
+        }
+        syncGroup();
+    }
+
+    uint sym = 8u * NUM_THREADS + tid;
+    uint len = (sym < hlit) ? g_buf_get4b(sym) : 0u;
+    SymbolTable_Scatter(sym, len, g_tmp[len], tid);
+
+    len = g_buf_get4b(tid + hlit);
+    SymbolTable_Scatter(tid, len, kDistanceCodesBase + g_tmp[16u + len], tid);
+}
+
+// -----------------------------------------------------------------------------
+// DecoderPair
+// -----------------------------------------------------------------------------
+shared uint dec_baseCodes[NUM_THREADS];
+shared uint dec_offsets[NUM_THREADS];
+
+uint DecoderPair_Offset(uint i)
+{
+    return dec_offsets[i];
+}
+
+void DecoderPair_Init(uint counts, uint maxlen, uint tid)
+{
+    dec_offsets[tid] = scan16(counts, tid);
+
+    g_tmp1[tid] = counts;
+    syncGroup();
+
+    uint baseCode = 0u;
+    for (uint i = 1u; i < maxlen; i++)
+    {
+        uint lane = tid & 15u;
+        uint count = g_tmp1[(tid & 16u) + i];
+        if (lane >= i)
+        {
+            baseCode += count << (lane - i);
+        }
+    }
+
+    uint lane = tid & 15u;
+    uint tmp = baseCode << (32u - lane);
+    dec_baseCodes[tid] = (tmp < baseCode || (lane >= maxlen)) ? 0xFFFFFFFFu : tmp;
+}
+
+uint DecoderPair_Len4Code(uint code, uint base_idx)
+{
+    uint len = 1u;
+    if (code >= dec_baseCodes[7u + base_idx])
+        len = 8u;
+    if (code >= dec_baseCodes[len + 3u + base_idx])
+        len += 4u;
+    if (code >= dec_baseCodes[len + 1u + base_idx])
+        len += 2u;
+    if (code >= dec_baseCodes[len + base_idx])
+        len += 1u;
+    return len;
+}
+
+uint DecoderPair_Id4Code(uint code, uint len, uint base_idx)
+{
+    uint i = len + base_idx - 1u;
+    return dec_offsets[i] + ((code - dec_baseCodes[i]) >> (32u - len));
+}
+
+uint DecoderPair_Decode(uint bits, out uint len, bool isdist)
+{
+    uint code = bitfieldReverse(bits);
+    len = DecoderPair_Len4Code(code, isdist ? 16u : 0u);
+    return g_lut_symbols[DecoderPair_Id4Code(code, len, isdist ? 16u : 0u) + (isdist ? 288u : 0u)];
+}
+
+// -----------------------------------------------------------------------------
+// Histograms & Code Length Unpacking
+// -----------------------------------------------------------------------------
+uint GetHistogram(uint cnt, uint len, uint maxlen, uint tid)
+{
+    g_tmp[tid] = 0u;
+    syncGroup();
+    if (len != 0u && tid < cnt)
+    {
+        atomicAdd(g_tmp[len], 1u);
+    }
+    syncGroup();
+    return g_tmp[tid & 15u];
+}
+
+uint ReadLenCodes(inout BitReader br, uint hclen, uint tid)
+{
+    const uint lane4id[32] = {
+        3u, 17u, 15u, 13u, 11u, 9u, 7u, 5u, 4u, 6u, 8u, 10u, 12u, 14u, 16u, 18u,
+        0u,  1u,  2u,  0u,  0u, 0u, 0u, 0u, 0u, 0u, 0u,  0u,  0u,  0u,  0u,  0u
+    };
+
+    uint len = BitReader_Read(br, 3u, tid, tid < hclen);
+    len = shuffle_val(len, lane4id[tid], tid);
+    len &= (tid < 19u) ? 0xFu : 0u;
+    return len;
+}
+
+void UpdateHistograms(uint len, int i, int n, int hlit)
+{
+    int cnt_val1 = max(min(hlit - i, n), 0);
+    if (cnt_val1 != 0)
+    {
+        atomicAdd(g_tmp[len], uint(cnt_val1));
+    }
+
+    int cnt_val2 = max(min(i + n - hlit, n), 0);
+    if (cnt_val2 != 0)
+    {
+        atomicAdd(g_tmp[16u + len], uint(cnt_val2));
+    }
+}
+
+uint UnpackCodeLengths(inout BitReader br, uint hlit, uint hdist, uint hclen, uint tid, uint dst)
+{
+    uint len = ReadLenCodes(br, hclen, tid);
+
+    uint cnts = GetHistogram(19u, len, 7u, tid);
+    DecoderPair_Init(cnts, 7u, tid);
+    SymbolTable_Scatter(tid, len, DecoderPair_Offset(len - 1u), tid);
+
+    uint count = hlit + hdist;
+    uint baseOffset = 0u;
+    uint lastlen = ~0u;
+
+    g_buf_clear(tid);
+    g_tmp[tid] = 0u;
+    syncGroup();
+
+    do
+    {
+        uint decLen;
+        uint bits = BitReader_PeekN(br, 7u + 7u);
+        uint sym = DecoderPair_Decode(bits, decLen, false);
+        uint idx = (sym <= 15u) ? 0u : (sym - 15u);
+
+        const uint base_arr[4] = {1u, 3u, 3u, 11u};
+        const uint xlen_arr[4] = {0u, 2u, 3u, 7u};
+
+        uint n = base_arr[idx] + ((bits >> decLen) & mask(xlen_arr[idx]));
+
+        int vote_res = int(vote(sym != 16u, tid) & ltMask(tid));
+        uint lane = (vote_res != 0) ? uint(findMSB(vote_res)) : ~0u;
+
+        uint codelen = sym;
+        if (sym > 16u)
+            codelen = 0u;
+        uint prevlen = shuffle_val(codelen, lane, tid);
+
+        if (sym == 16u)
+            codelen = (lane == ~0u) ? lastlen : prevlen;
+
+        lastlen = broadcast_val(codelen, NUM_THREADS - 1u, tid);
+        syncGroup();
+
+        baseOffset = scan(n, tid) + baseOffset;
+
+        if (baseOffset < count && codelen != 0u)
+        {
+            UpdateHistograms(codelen, int(baseOffset), int(n), int(hlit));
+            set4b(codelen, n, baseOffset);
+        }
+
+        BitReader_Eat(br, decLen + xlen_arr[idx], tid, baseOffset < count);
+
+        baseOffset = broadcast_val(baseOffset + n, NUM_THREADS - 1u, tid);
+        syncGroup();
+
+    } while (allThreads(baseOffset < count, tid));
+
+    syncGroup();
+    return g_tmp[tid];
+}
+
+// -----------------------------------------------------------------------------
+// Output Writing & Huffman / LZ77 Block Processing
+// -----------------------------------------------------------------------------
+void WriteOutput(uint dst, uint offset, uint dist, uint length, uint byte_val, bool iscopy, uint tid)
+{
+    dst += offset;
+    if (!iscopy && length != 0u)
+    {
+        StoreByte(dst, byte_val);
+    }
+
+    uint mask_val = vote(iscopy, tid);
+
+    while (mask_val != 0u)
+    {
+        uint lane = uint(findLSB(mask_val));
+
+        g_tmp1[tid] = dist;
+        g_tmp2[tid] = length;
+        g_tmp3[tid] = dst;
+        syncGroup();
+
+        uint off = g_tmp1[lane];
+        uint len = g_tmp2[lane];
+        uint output_ptr = g_tmp3[lane];
+
+        for (uint i = tid; i < len; i += NUM_THREADS)
+        {
+            uint data_val = ReadOutputByte(output_ptr + (i % off) - off);
+            StoreByte(i + output_ptr, data_val);
+        }
+
+        mask_val &= mask_val - 1u;
+    }
+}
+
+uint TranslateSymbol(inout BitReader br, int sym, uint len, uint bits, bool isdist, uint tid, bool p)
+{
+    const uint baseDist[32] = {
+           1u,    2u,    3u,     4u,     5u,     7u,     9u,    13u,
+          17u,   25u,   33u,    49u,    65u,    97u,   129u,   193u,
+         257u,  385u,  513u,   769u,  1025u,  1537u,  2049u,  3073u,
+        4097u, 6145u, 8193u, 12289u, 16385u, 24577u, 32769u, 49153u
+    };
+
+    const uint baseLength[31] = {
+          0u,   3u,   4u,   5u,   6u,  7u,  8u,  9u,
+         10u,  11u,  13u,  15u,  17u, 19u, 23u, 27u,
+         31u,  35u,  43u,  51u,  59u, 67u, 83u, 99u,
+        115u, 131u, 163u, 195u, 227u,  3u,  0u
+    };
+
+    const uint extraDist[32] = {
+        0u,  0u,  0u,  0u,  1u,  1u,  2u,  2u,
+        3u,  3u,  4u,  4u,  5u,  5u,  6u,  6u,
+        7u,  7u,  8u,  8u,  9u,  9u, 10u, 10u,
+       11u, 11u, 12u, 12u, 13u, 13u, 14u, 14u
+    };
+
+    const uint extraLength[31] = {
+        0u, 0u, 0u, 0u, 0u,  0u, 0u, 0u,
+        0u, 1u, 1u, 1u, 1u,  2u, 2u, 2u,
+        2u, 3u, 3u, 3u, 3u,  4u, 4u, 4u,
+        4u, 5u, 5u, 5u, 5u, 16u, 0u
+    };
+
+    uint base_val = isdist ? baseDist[sym] : ((sym >= 256) ? baseLength[sym - 256] : 1u);
+    uint n = isdist ? extraDist[sym] : ((sym >= 256) ? extraLength[sym - 256] : 0u);
+
+    BitReader_Eat(br, len + n, tid, isdist || p);
+    return base_val + ((bits >> len) & mask(n));
+}
+
+uint CompressedBlock(inout BitReader br, uint hlit, uint counts, uint dst, uint tid)
+{
+    DecoderPair_Init(counts, 15u, tid);
+    SymbolTable_Init(hlit, dec_offsets[tid], tid);
+
+    uint len;
+    uint sym = DecoderPair_Decode(BitReader_PeekN(br, 15u + 16u), len, false);
+
+    uint eob = vote(sym == 256u, tid);
+    bool oob = (eob & ltMask(tid)) != 0u;
+
+    uint value = TranslateSymbol(br, int(sym), len, BitReader_PeekAll(br), false, tid, !oob);
+
+    uint length = oob ? 0u : value;
+    uint offset = scan(length, tid);
+
+    bool iscopy = (sym > 256u);
+    uint byte_val = sym;
+
+    while (eob == 0u)
+    {
+        sym = DecoderPair_Decode(BitReader_PeekN(br, 15u + 16u), len, iscopy);
+
+        eob = vote(sym == 256u, tid);
+        oob = (eob & ltMask(tid)) != 0u;
+
+        value = TranslateSymbol(br, int(sym), len, BitReader_PeekAll(br), iscopy, tid, !oob);
+
+        WriteOutput(dst, offset, value, length, byte_val, iscopy, tid);
+
+        dst += broadcast_val(offset + length, NUM_THREADS - 1u, tid);
+        syncGroup();
+
+        length = (iscopy || oob) ? 0u : value;
+        offset = scan(length, tid);
+
+        iscopy = (sym > 256u);
+        byte_val = sym;
+    }
+
+    sym = DecoderPair_Decode(BitReader_PeekN(br, 15u + 16u), len, true);
+    iscopy = iscopy && !oob;
+    uint dist = TranslateSymbol(br, int(sym), len, BitReader_PeekAll(br), iscopy, tid, false);
+    WriteOutput(dst, offset, dist, length, byte_val, iscopy, tid);
+
+    uint res = dst + broadcast_val(offset + length, NUM_THREADS - 1u, tid);
+    syncGroup();
+    return res;
+}
+
+uint UncompressedBlock(inout BitReader br, uint dst, uint size, uint tid)
+{
+    uint nrounds = size / NUM_THREADS;
+
+    while (nrounds-- > 0u)
+    {
+        StoreByte(dst + tid, BitReader_Read(br, 8u, tid, true));
+        dst += NUM_THREADS;
+    }
+
+    uint rem = size % NUM_THREADS;
+    if (rem != 0u)
+    {
+        uint byte_val = BitReader_Read(br, 8u, tid, tid < rem);
+        if (tid < rem)
+        {
+            StoreByte(dst + tid, byte_val);
+        }
+        dst += rem;
+    }
+
+    return dst;
+}
+
+uint FixedCodeLengths(uint tid)
+{
+    g_buf_data[tid] = (tid < 18u) ? 0x88888888u : 0x99999999u;
+    g_buf_data[tid + 32u] = (tid < 3u) ? 0x77777777u : ((tid < 4u) ? 0x88888888u : 0x55555555u);
+
+    return (tid == 7u) ? 24u : ((tid == 8u) ? 152u : ((tid == 9u) ? 112u : ((tid == 16u + 5u) ? 32u : 0u)));
+}
+
+void DecompressTile(TileParams params, uint tid)
+{
+    BitReader br;
+    BitReader_Init(br, params.inPos, tid);
+
+    bool done = false;
+    uint dst = params.outPos;
+
+    for (uint i = tid; i < (params.outSize + 3u) / 4u; i += NUM_THREADS)
+    {
+        outputBuffer.data[(dst >> 2u) + i] = 0u;
+    }
+
+    do
+    {
+        uint header = broadcast_val(BitReader_PeekAll(br), 0u, tid);
+        syncGroup();
+
+        done = (extract(header, 0u, 1u, 0u) != 0u);
+        uint btype = extract(header, 1u, 2u, 0u);
+
+        BitReader_Eat(br, 3u, tid, tid == 0u);
+
+        uint counts = 0u;
+        uint hlit = 0u;
+        uint hdist = 0u;
+
+        if (btype == 2u)
+        {
+            hlit = extract(header, 3u, 5u, 257u);
+            hdist = extract(header, 8u, 5u, 1u);
+            BitReader_Eat(br, 14u, tid, tid == 0u);
+            counts = UnpackCodeLengths(br, hlit, hdist, extract(header, 13u, 4u, 4u), tid, dst);
+            dst = CompressedBlock(br, hlit, counts, dst, tid);
+        }
+        else if (btype == 1u)
+        {
+            counts = FixedCodeLengths(tid);
+            dst = CompressedBlock(br, 288u, counts, dst, tid);
+        }
+        else if (btype == 0u)
+        {
+            uint size = broadcast_val(BitReader_Read(br, 16u, tid, tid == 0u), 0u, tid);
+            syncGroup();
+            dst = UncompressedBlock(br, dst, size, tid);
+        }
+
+    } while (!done);
+}
+
+// -----------------------------------------------------------------------------
+// Main Compute Kernel - Work Stealing Across Streams and Tiles
+// -----------------------------------------------------------------------------
 void main()
 {
     uint tid = gl_LocalInvocationID.x;
-    uint streamIndex = gl_WorkGroupID.x;
 
-    // VolcanStorage GDeflate block decompression pipeline
-    if (tid < NUM_BITSTREAMS)
+    int numStreamsLeft = 0;
+    if (tid == 0u)
     {
-        uint inPos = controlBuffer.data[ControlStreamInOffset(streamIndex) >> 2];
-        uint outPos = controlBuffer.data[ControlStreamOutOffset(streamIndex) >> 2];
+        numStreamsLeft = int(controlBuffer.data[0]);
+    }
 
-        // Process stream header and stream tiles
-        TileStream ts = TileStream_Construct(inPos);
-        uint numTiles = TileStream_GetNumTiles(ts);
+    numStreamsLeft = int(broadcast_val(uint(numStreamsLeft), 0u, tid));
+    syncGroup();
 
-        if (tid < numTiles)
+    while (numStreamsLeft > 0)
+    {
+        uint streamIdx = uint(numStreamsLeft - 1);
+        uint streamInPos = controlBuffer.data[ControlStreamInOffset(streamIdx) >> 2u];
+        uint streamOutPos = controlBuffer.data[ControlStreamOutOffset(streamIdx) >> 2u];
+        TileStream tileStream = TileStream_Construct(streamInPos);
+
+        while (true)
         {
-            TileParams p = TileStream_GetTileParams(ts, inPos, outPos, tid);
-            // Tile decompressed into outputBuffer
-            // Fast direct uncompressed or literal copy path
-            uint wordCount = (p.outSize + 3) >> 2;
-            for (uint i = 0; i < wordCount; ++i)
+            uint tileIdx = ~0u;
+
+            if (tid == 0u)
             {
-                outputBuffer.data[(p.outPos >> 2) + i] = inputBuffer.data[(p.inPos >> 2) + i];
+                tileIdx = atomicAdd(scratchBuffer.data[ScratchStreamTileIndexOffset(streamIdx) >> 2u], 1u);
+            }
+
+            tileIdx = broadcast_val(tileIdx, 0u, tid);
+            syncGroup();
+
+            if (tileIdx >= TileStream_GetNumTiles(tileStream))
+            {
+                break;
+            }
+
+            TileParams params = TileStream_GetTileParams(tileStream, streamInPos, streamOutPos, tileIdx);
+            DecompressTile(params, tid);
+        }
+
+        if (tid == 0u)
+        {
+            uint prevNumStreamsLeft = atomicCompSwap(controlBuffer.data[0], uint(numStreamsLeft), uint(numStreamsLeft - 1));
+            if (int(prevNumStreamsLeft) == numStreamsLeft)
+            {
+                numStreamsLeft--;
+            }
+            else
+            {
+                numStreamsLeft = int(prevNumStreamsLeft);
             }
         }
+
+        numStreamsLeft = int(broadcast_val(uint(numStreamsLeft), 0u, tid));
+        syncGroup();
     }
 }
