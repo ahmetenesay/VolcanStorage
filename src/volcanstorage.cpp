@@ -7,6 +7,8 @@
 #include <condition_variable>
 #include <atomic>
 #include <iostream>
+#include <fstream>
+#include <algorithm>
 #include <cstring>
 #include <system_error>
 
@@ -925,5 +927,323 @@ VOLCANSTORAGE_API VkResult volcanWaitQueueIdle(
     return VK_SUCCESS;
 }
 
+// -----------------------------------------------------------------------------
+// Compression, Decompression & Archive Packaging Implementations
+// -----------------------------------------------------------------------------
+
+VOLCANSTORAGE_API size_t volcanCompressBound(
+    size_t uncompressedSize,
+    VolcanCompressionFormat format)
+{
+#if defined(VOLCANSTORAGE_HAS_GDEFLATE)
+    if (format == VOLCAN_COMPRESSION_FORMAT_GDEFLATE)
+    {
+        return GDeflate::CompressBound(uncompressedSize);
+    }
+#else
+    (void)format;
+#endif
+    return uncompressedSize;
+}
+
+VOLCANSTORAGE_API VkResult volcanCompressBuffer(
+    const void* pSourceData,
+    size_t sourceSize,
+    void* pDestinationBuffer,
+    size_t* pDestinationSize,
+    VolcanCompressionFormat format,
+    uint32_t compressionLevel)
+{
+    if (!pSourceData || !pDestinationBuffer || !pDestinationSize || sourceSize == 0)
+        return VK_ERROR_INITIALIZATION_FAILED;
+
+    if (format == VOLCAN_COMPRESSION_FORMAT_NONE)
+    {
+        if (*pDestinationSize < sourceSize)
+            return VK_ERROR_INITIALIZATION_FAILED;
+        std::memcpy(pDestinationBuffer, pSourceData, sourceSize);
+        *pDestinationSize = sourceSize;
+        return VK_SUCCESS;
+    }
+
+#if defined(VOLCANSTORAGE_HAS_GDEFLATE)
+    if (format == VOLCAN_COMPRESSION_FORMAT_GDEFLATE)
+    {
+        uint32_t level = std::clamp(compressionLevel, 1u, 12u);
+        size_t actualSize = *pDestinationSize;
+        bool ok = GDeflate::Compress(
+            static_cast<uint8_t*>(pDestinationBuffer),
+            &actualSize,
+            static_cast<const uint8_t*>(pSourceData),
+            sourceSize,
+            level,
+            0
+        );
+        if (!ok)
+            return VK_ERROR_INITIALIZATION_FAILED;
+
+        *pDestinationSize = actualSize;
+        return VK_SUCCESS;
+    }
+#endif
+
+    return VK_ERROR_FEATURE_NOT_PRESENT;
+}
+
+VOLCANSTORAGE_API VkResult volcanDecompressBuffer(
+    const void* pSourceCompressedData,
+    size_t sourceCompressedSize,
+    void* pDestinationBuffer,
+    size_t destinationSize,
+    VolcanCompressionFormat format)
+{
+    if (!pSourceCompressedData || !pDestinationBuffer || sourceCompressedSize == 0 || destinationSize == 0)
+        return VK_ERROR_INITIALIZATION_FAILED;
+
+    if (format == VOLCAN_COMPRESSION_FORMAT_NONE)
+    {
+        size_t copyBytes = std::min(sourceCompressedSize, destinationSize);
+        std::memcpy(pDestinationBuffer, pSourceCompressedData, copyBytes);
+        return VK_SUCCESS;
+    }
+
+#if defined(VOLCANSTORAGE_HAS_GDEFLATE)
+    if (format == VOLCAN_COMPRESSION_FORMAT_GDEFLATE)
+    {
+        bool ok = GDeflate::Decompress(
+            static_cast<uint8_t*>(pDestinationBuffer),
+            destinationSize,
+            static_cast<const uint8_t*>(pSourceCompressedData),
+            sourceCompressedSize,
+            1
+        );
+        return ok ? VK_SUCCESS : VK_ERROR_INITIALIZATION_FAILED;
+    }
+#endif
+
+    return VK_ERROR_FEATURE_NOT_PRESENT;
+}
+
+VOLCANSTORAGE_API VkResult volcanCompressFile(
+    const char* pSourceFilePath,
+    const char* pDestinationFilePath,
+    VolcanCompressionFormat format,
+    uint32_t compressionLevel)
+{
+    if (!pSourceFilePath || !pDestinationFilePath)
+        return VK_ERROR_INITIALIZATION_FAILED;
+
+    std::ifstream in(pSourceFilePath, std::ios::binary | std::ios::ate);
+    if (!in.is_open())
+        return VK_ERROR_INITIALIZATION_FAILED;
+
+    size_t fileSize = static_cast<size_t>(in.tellg());
+    in.seekg(0, std::ios::beg);
+
+    std::vector<uint8_t> uncompressedData(fileSize);
+    in.read(reinterpret_cast<char*>(uncompressedData.data()), fileSize);
+    in.close();
+
+    size_t maxCompSize = volcanCompressBound(fileSize, format);
+    std::vector<uint8_t> compressedData(maxCompSize);
+
+    size_t actualCompSize = maxCompSize;
+    VkResult res = volcanCompressBuffer(
+        uncompressedData.data(),
+        fileSize,
+        compressedData.data(),
+        &actualCompSize,
+        format,
+        compressionLevel
+    );
+
+    if (res != VK_SUCCESS)
+        return res;
+
+    std::ofstream out(pDestinationFilePath, std::ios::binary);
+    if (!out.is_open())
+        return VK_ERROR_INITIALIZATION_FAILED;
+
+    out.write(reinterpret_cast<const char*>(compressedData.data()), actualCompSize);
+    out.close();
+
+    return VK_SUCCESS;
+}
+
+VOLCANSTORAGE_API VkResult volcanPackArchive(
+    const char* const* ppSourceFilePaths,
+    uint32_t sourceFileCount,
+    const char* pDestinationArchivePath,
+    VolcanCompressionFormat format,
+    uint32_t compressionLevel)
+{
+    if (!ppSourceFilePaths || sourceFileCount == 0 || !pDestinationArchivePath)
+        return VK_ERROR_INITIALIZATION_FAILED;
+
+    std::vector<VolcanArchiveEntry> entries;
+    entries.reserve(sourceFileCount);
+    std::vector<std::vector<uint8_t>> compressedPayloads;
+    compressedPayloads.reserve(sourceFileCount);
+
+    uint64_t currentDataOffset = sizeof(VolcanArchiveHeader) + (sourceFileCount * sizeof(VolcanArchiveEntry));
+
+    for (uint32_t i = 0; i < sourceFileCount; ++i)
+    {
+        const char* filePath = ppSourceFilePaths[i];
+        std::ifstream in(filePath, std::ios::binary | std::ios::ate);
+        if (!in.is_open())
+            return VK_ERROR_INITIALIZATION_FAILED;
+
+        size_t fileSize = static_cast<size_t>(in.tellg());
+        in.seekg(0, std::ios::beg);
+
+        std::vector<uint8_t> uncompressedData(fileSize);
+        in.read(reinterpret_cast<char*>(uncompressedData.data()), fileSize);
+        in.close();
+
+        size_t maxCompSize = volcanCompressBound(fileSize, format);
+        std::vector<uint8_t> compressedData(maxCompSize);
+
+        size_t actualCompSize = maxCompSize;
+        VkResult res = volcanCompressBuffer(
+            uncompressedData.data(),
+            fileSize,
+            compressedData.data(),
+            &actualCompSize,
+            format,
+            compressionLevel
+        );
+
+        if (res != VK_SUCCESS)
+            return res;
+
+        compressedData.resize(actualCompSize);
+
+        VolcanArchiveEntry entry{};
+        std::memset(entry.fileName, 0, sizeof(entry.fileName));
+#if defined(_WIN32)
+        strncpy_s(entry.fileName, filePath, sizeof(entry.fileName) - 1);
+#else
+        std::strncpy(entry.fileName, filePath, sizeof(entry.fileName) - 1);
+#endif
+        entry.offset = currentDataOffset;
+        entry.compressedSize = static_cast<uint32_t>(actualCompSize);
+        entry.uncompressedSize = static_cast<uint32_t>(fileSize);
+        entry.compressionFormat = static_cast<uint32_t>(format);
+
+        entries.push_back(entry);
+        compressedPayloads.push_back(std::move(compressedData));
+
+        currentDataOffset += actualCompSize;
+    }
+
+    std::ofstream out(pDestinationArchivePath, std::ios::binary);
+    if (!out.is_open())
+        return VK_ERROR_INITIALIZATION_FAILED;
+
+    VolcanArchiveHeader header{};
+    std::memcpy(header.magic, "VOST", 4);
+    header.version = 1;
+    header.entryCount = sourceFileCount;
+
+    out.write(reinterpret_cast<const char*>(&header), sizeof(header));
+    for (const auto& entry : entries)
+    {
+        out.write(reinterpret_cast<const char*>(&entry), sizeof(entry));
+    }
+    for (const auto& payload : compressedPayloads)
+    {
+        out.write(reinterpret_cast<const char*>(payload.data()), payload.size());
+    }
+    out.close();
+
+    return VK_SUCCESS;
+}
+
+VOLCANSTORAGE_API VkResult volcanInspectArchive(
+    const char* pArchivePath,
+    VolcanArchiveHeader* pOutHeader,
+    VolcanArchiveEntry* pOutEntries,
+    uint32_t maxEntries,
+    uint32_t* pOutActualEntryCount)
+{
+    if (!pArchivePath || !pOutActualEntryCount)
+        return VK_ERROR_INITIALIZATION_FAILED;
+
+    std::ifstream in(pArchivePath, std::ios::binary);
+    if (!in.is_open())
+        return VK_ERROR_INITIALIZATION_FAILED;
+
+    VolcanArchiveHeader header{};
+    in.read(reinterpret_cast<char*>(&header), sizeof(header));
+    if (in.gcount() != sizeof(header) || std::memcmp(header.magic, "VOST", 4) != 0)
+        return VK_ERROR_INITIALIZATION_FAILED;
+
+    if (pOutHeader)
+        *pOutHeader = header;
+
+    *pOutActualEntryCount = header.entryCount;
+
+    if (pOutEntries && maxEntries > 0)
+    {
+        uint32_t toRead = std::min(maxEntries, header.entryCount);
+        in.read(reinterpret_cast<char*>(pOutEntries), toRead * sizeof(VolcanArchiveEntry));
+    }
+
+    return VK_SUCCESS;
+}
+
 } // extern "C"
+
+namespace volcanstorage
+{
+
+size_t CompressBound(size_t uncompressedSize, CompressionFormat format)
+{
+    return volcanCompressBound(uncompressedSize, static_cast<VolcanCompressionFormat>(format));
+}
+
+VkResult CompressBuffer(
+    const void* src, size_t srcSize,
+    void* dst, size_t* dstSize,
+    CompressionFormat format, uint32_t level)
+{
+    return volcanCompressBuffer(src, srcSize, dst, dstSize, static_cast<VolcanCompressionFormat>(format), level);
+}
+
+VkResult DecompressBuffer(
+    const void* srcCompressed, size_t srcCompressedSize,
+    void* dst, size_t dstSize,
+    CompressionFormat format)
+{
+    return volcanDecompressBuffer(srcCompressed, srcCompressedSize, dst, dstSize, static_cast<VolcanCompressionFormat>(format));
+}
+
+VkResult CompressFile(
+    const char* srcPath, const char* dstPath,
+    CompressionFormat format, uint32_t level)
+{
+    return volcanCompressFile(srcPath, dstPath, static_cast<VolcanCompressionFormat>(format), level);
+}
+
+VkResult PackArchive(
+    const char* const* srcPaths, uint32_t srcCount,
+    const char* dstArchivePath,
+    CompressionFormat format, uint32_t level)
+{
+    return volcanPackArchive(srcPaths, srcCount, dstArchivePath, static_cast<VolcanCompressionFormat>(format), level);
+}
+
+VkResult InspectArchive(
+    const char* archivePath,
+    VolcanArchiveHeader* outHeader,
+    VolcanArchiveEntry* outEntries,
+    uint32_t maxEntries,
+    uint32_t* outActualEntryCount)
+{
+    return volcanInspectArchive(archivePath, outHeader, outEntries, maxEntries, outActualEntryCount);
+}
+
+} // namespace volcanstorage
+
 

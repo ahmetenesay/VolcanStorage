@@ -144,10 +144,10 @@ if(VOLCANSTORAGE_BUILD_SAMPLES)
 endif()
 
 # Archiving Tool
-if(EXISTS "${CMAKE_CURRENT_SOURCE_DIR}/tools/volcan_pack.cpp" AND TARGET GDeflate)
+if(EXISTS "${CMAKE_CURRENT_SOURCE_DIR}/tools/volcan_pack.cpp")
     add_executable(volcan_pack tools/volcan_pack.cpp)
-    target_link_libraries(volcan_pack PRIVATE GDeflate)
-    target_include_directories(volcan_pack PRIVATE GDeflate/GDeflate)
+    target_link_libraries(volcan_pack PRIVATE VolcanStorage GDeflate)
+    target_include_directories(volcan_pack PRIVATE include GDeflate/GDeflate)
 endif()
 
 # -----------------------------------------------------------------------------

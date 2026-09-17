@@ -142,17 +142,24 @@ int main(int argc, char* argv[])
     std::cout << "====================================================================" << std::endl;
 
     // 1. Locate Nano Banana Asset (Prefer GDeflate KTX2 Archive if available)
-    std::string assetPath = "nano_banana.raw";
+    std::string assetPath = (argc >= 2) ? argv[1] : "nano_banana.raw";
     bool isGDeflateArchive = false;
     ArchiveEntry selectedEntry{};
 
-    std::string archivePath = "nano_banana_archive.volcan";
+    std::string archivePath = (argc >= 2) ? argv[1] : "nano_banana_archive.volcan";
     if (!std::ifstream(archivePath, std::ios::binary).is_open())
     {
-        if (std::ifstream("../nano_banana_archive.volcan", std::ios::binary).is_open())
-            archivePath = "../nano_banana_archive.volcan";
-        else if (std::ifstream("../../nano_banana_archive.volcan", std::ios::binary).is_open())
-            archivePath = "../../nano_banana_archive.volcan";
+        if (std::ifstream("../" + archivePath, std::ios::binary).is_open())
+            archivePath = "../" + archivePath;
+        else if (std::ifstream("../../" + archivePath, std::ios::binary).is_open())
+            archivePath = "../../" + archivePath;
+        else if (argc < 2)
+        {
+            if (std::ifstream("../nano_banana_archive.volcan", std::ios::binary).is_open())
+                archivePath = "../nano_banana_archive.volcan";
+            else if (std::ifstream("../../nano_banana_archive.volcan", std::ios::binary).is_open())
+                archivePath = "../../nano_banana_archive.volcan";
+        }
     }
 
     std::ifstream archCheck(archivePath, std::ios::binary);
@@ -183,11 +190,6 @@ int main(int argc, char* argv[])
                       << "  - Codec: Hardware GDeflate Decompression (GPU Compute / CPU SIMD)\n";
         }
         archCheck.close();
-    }
-
-    if (!isGDeflateArchive && argc >= 2)
-    {
-        assetPath = argv[1];
     }
 
     std::ifstream checkFile(assetPath, std::ios::binary | std::ios::ate);

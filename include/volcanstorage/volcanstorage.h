@@ -128,6 +128,22 @@ typedef struct VolcanFactoryCreateInfo {
     uint32_t defaultStagingBufferSize;
 } VolcanFactoryCreateInfo;
 
+#pragma pack(push, 1)
+typedef struct VolcanArchiveHeader {
+    char magic[4];        // "VOST"
+    uint32_t version;     // 1
+    uint32_t entryCount;  // Number of archived entries
+} VolcanArchiveHeader;
+
+typedef struct VolcanArchiveEntry {
+    char fileName[64];
+    uint64_t offset;
+    uint32_t compressedSize;
+    uint32_t uncompressedSize;
+    uint32_t compressionFormat; // 1 = GDeflate, 0 = None
+} VolcanArchiveEntry;
+#pragma pack(pop)
+
 // -----------------------------------------------------------------------------
 // Core Vulkan C API Function Signatures
 // -----------------------------------------------------------------------------
@@ -188,8 +204,56 @@ VOLCANSTORAGE_API VkResult volcanSubmitQueue(
 VOLCANSTORAGE_API VkResult volcanWaitQueueIdle(
     VolcanStorageQueue queue);
 
+// -----------------------------------------------------------------------------
+// Compression, Decompression & Archive Packaging (Any custom file extension allowed)
+// -----------------------------------------------------------------------------
+
+VOLCANSTORAGE_API size_t volcanCompressBound(
+    size_t uncompressedSize,
+    VolcanCompressionFormat format);
+
+VOLCANSTORAGE_API VkResult volcanCompressBuffer(
+    const void* pSourceData,
+    size_t sourceSize,
+    void* pDestinationBuffer,
+    size_t* pDestinationSize,
+    VolcanCompressionFormat format,
+    uint32_t compressionLevel);
+
+VOLCANSTORAGE_API VkResult volcanDecompressBuffer(
+    const void* pSourceCompressedData,
+    size_t sourceCompressedSize,
+    void* pDestinationBuffer,
+    size_t destinationSize,
+    VolcanCompressionFormat format);
+
+VOLCANSTORAGE_API VkResult volcanCompressFile(
+    const char* pSourceFilePath,
+    const char* pDestinationFilePath,
+    VolcanCompressionFormat format,
+    uint32_t compressionLevel);
+
+VOLCANSTORAGE_API VkResult volcanPackArchive(
+    const char* const* ppSourceFilePaths,
+    uint32_t sourceFileCount,
+    const char* pDestinationArchivePath,
+    VolcanCompressionFormat format,
+    uint32_t compressionLevel);
+
+VOLCANSTORAGE_API VkResult volcanInspectArchive(
+    const char* pArchivePath,
+    VolcanArchiveHeader* pOutHeader,
+    VolcanArchiveEntry* pOutEntries,
+    uint32_t maxEntries,
+    uint32_t* pOutActualEntryCount);
+
 #ifdef __cplusplus
 } // extern "C"
+#endif
+
+#if defined(__cplusplus)
+#include <string>
+#include <vector>
 
 // -----------------------------------------------------------------------------
 // C++ OOP Interface Bindings (Backward Compatible for Existing Engines)
@@ -310,7 +374,84 @@ public:
 
 extern "C" VOLCANSTORAGE_API VkResult VolcanStorageGetFactory(IVolcanStorageFactory** ppFactory);
 
+// -----------------------------------------------------------------------------
+// C++ Compression & Archive Packaging Helpers (Any custom file extension allowed)
+// -----------------------------------------------------------------------------
+
+VOLCANSTORAGE_API size_t CompressBound(
+    size_t uncompressedSize,
+    CompressionFormat format = CompressionFormat::GDeflate);
+
+VOLCANSTORAGE_API VkResult CompressBuffer(
+    const void* src,
+    size_t srcSize,
+    void* dst,
+    size_t* dstSize,
+    CompressionFormat format = CompressionFormat::GDeflate,
+    uint32_t level = 9);
+
+VOLCANSTORAGE_API VkResult DecompressBuffer(
+    const void* srcCompressed,
+    size_t srcCompressedSize,
+    void* dst,
+    size_t dstSize,
+    CompressionFormat format = CompressionFormat::GDeflate);
+
+VOLCANSTORAGE_API VkResult CompressFile(
+    const char* srcPath,
+    const char* dstPath,
+    CompressionFormat format = CompressionFormat::GDeflate,
+    uint32_t level = 9);
+
+VOLCANSTORAGE_API VkResult PackArchive(
+    const char* const* srcPaths,
+    uint32_t srcCount,
+    const char* dstArchivePath,
+    CompressionFormat format = CompressionFormat::GDeflate,
+    uint32_t level = 9);
+
+VOLCANSTORAGE_API VkResult InspectArchive(
+    const char* archivePath,
+    VolcanArchiveHeader* outHeader,
+    VolcanArchiveEntry* outEntries,
+    uint32_t maxEntries,
+    uint32_t* outActualEntryCount);
+
+inline VkResult CompressFile(
+    const std::string& srcPath,
+    const std::string& dstPath,
+    CompressionFormat format = CompressionFormat::GDeflate,
+    uint32_t level = 9)
+{
+    return CompressFile(srcPath.c_str(), dstPath.c_str(), format, level);
+}
+
+inline VkResult PackArchive(
+    const std::vector<std::string>& srcPaths,
+    const std::string& dstArchivePath,
+    CompressionFormat format = CompressionFormat::GDeflate,
+    uint32_t level = 9)
+{
+    std::vector<const char*> cstrPaths;
+    cstrPaths.reserve(srcPaths.size());
+    for (const auto& p : srcPaths)
+        cstrPaths.push_back(p.c_str());
+    return PackArchive(cstrPaths.data(), static_cast<uint32_t>(cstrPaths.size()), dstArchivePath.c_str(), format, level);
+}
+
+inline VkResult InspectArchive(
+    const std::string& archivePath,
+    VolcanArchiveHeader& outHeader,
+    std::vector<VolcanArchiveEntry>& outEntries)
+{
+    uint32_t count = 0;
+    VkResult res = InspectArchive(archivePath.c_str(), &outHeader, nullptr, 0, &count);
+    if (res != VK_SUCCESS)
+        return res;
+    outEntries.resize(count);
+    return InspectArchive(archivePath.c_str(), &outHeader, outEntries.data(), count, &count);
+}
 } // namespace volcanstorage
-#endif // __cplusplus
+#endif
 
 #endif // VOLCANSTORAGE_H
